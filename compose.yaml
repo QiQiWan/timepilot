@@ -1,0 +1,16 @@
+# Local development only. Exposes port on loopback, not the network.
+# Production requires authentication, RBAC, TLS, migrations and worker isolation.
+services:
+  timepilot:
+    build: .
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      TIMEPILOT_HOME: /data
+      TIMEPILOT_LOCAL_MODE: "1"
+      TIMEPILOT_MIN_FREE_GB: "0.2"
+    volumes:
+      - timepilot_data:/data
+    restart: unless-stopped
+volumes:
+  timepilot_data:

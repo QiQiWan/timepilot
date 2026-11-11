@@ -1,0 +1,3 @@
+interface:
+  display_name: "真实语义标注与模型评估"
+  short_description: "人工标注业务字段，对照规则与真实模型效果"

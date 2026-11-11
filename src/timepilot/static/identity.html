@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>TimePilot · 账户与项目权限</title>
+<style>
+:root{font:15px/1.6 system-ui,-apple-system,sans-serif;color:#1e2a3d;background:#f6f8fb}*{box-sizing:border-box}
+body{margin:0;max-width:1180px;padding:32px 22px 70px;margin-inline:auto}header{display:flex;justify-content:space-between;gap:16px;align-items:center;margin-bottom:24px}
+h1{font-size:25px;line-height:1.2;margin:0}.muted{color:#69768a;font-size:13px}section{background:white;border:1px solid #dce3ed;border-radius:14px;margin-bottom:18px;padding:24px}
+h2{font-size:17px;margin:0 0 14px}table{border-collapse:collapse;width:100%;font-size:13px}td,th{border-bottom:1px solid #e7ebf0;padding:10px 9px;text-align:left}th{background:#f6f8fb}
+form{display:flex;flex-wrap:wrap;align-items:flex-end;gap:12px;margin:12px 0}label{display:flex;flex-direction:column;gap:5px;font-size:13px;font-weight:600}
+input,select{border:1px solid #cbd5e2;border-radius:8px;padding:10px;min-width:165px;background:white}button,.link{display:inline-flex;align-items:center;text-decoration:none;border:1px solid #cbd5e2;border-radius:9px;background:white;padding:9px 16px;font-size:14px;cursor:pointer;color:#19385b}
+button.primary{background:#1c365d;color:#fff;border-color:#1c365d}button:disabled{opacity:.65;cursor:wait}#notice{margin-bottom:14px;min-height:12px;color:#b92a32}a{color:#1d528a}
+</style></head><body>
+<header><div><h1>账户与项目权限</h1><p class="muted">独立租户 · 项目角色 · 操作记录</p></div><a class="link" href="/projects">返回项目</a></header>
+<div id="notice" role="status" aria-live="polite"></div>
+<section><h2>当前租户</h2><div id="actor" class="muted">检查账户权限…</div></section>
+<section><h2>租户用户</h2><form id="new-user">
+<label>用户名<input name="username" minlength="3" required placeholder="例如 operator01"></label>
+<label>初始密码（至少 14 位）<input name="password" type="password" minlength="14" required autocomplete="new-password"></label>
+<button type="submit" class="primary">新增用户</button></form>
+<div id="users" class="muted">读取中…</div></section>
+<section><h2>项目成员授权</h2><p class="muted">同一用户可在不同项目承担不同职责。跨租户账户不能授权。</p>
+<form id="grant"><label>项目<select name="project_id" id="projects" required></select></label>
+<label>用户<select name="user_id" id="accounts" required></select></label>
+<label>项目角色<select name="role"><option value="viewer">只读查看</option><option value="analyst">分析人员</option><option value="editor">数据编辑</option><option value="project_admin">项目管理员</option></select></label>
+<button class="primary" type="submit">保存项目授权</button></form><div id="members"></div></section>
+<section><h2>近期审计记录</h2><div id="audit" class="muted">读取中…</div></section>
+<script src="/assets/security-client.js"></script>
+<script src="/assets/identity.js" defer></script>
+</body></html>

@@ -1,0 +1,3 @@
+interface:
+  display_name: "数据结构识别"
+  short_description: "识别复杂文件、工作表及业务字段，执行受控转换"

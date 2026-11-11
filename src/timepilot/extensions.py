@@ -1,0 +1,49 @@
+"""Forward-compatible extension ports; implementations are intentionally independent of server."""
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any, Protocol
+
+import pandas as pd
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class PluginDescriptor(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    plugin_id: str = Field(min_length=3)
+    plugin_version: str
+    contract_version: str = "1.0.0"
+    description: str
+    supported_task_families: list[str]
+    needs_network: bool = False
+    side_effects: list[str] = Field(default_factory=list)
+
+
+class DataSourcePlugin(Protocol):
+    def describe(self) -> PluginDescriptor: ...
+    def preview(self, config: dict[str, Any], *, limit: int = 20) -> pd.DataFrame: ...
+    def read_snapshot(self, config: dict[str, Any], output_dir: Path) -> dict: ...
+
+
+class FeaturePlugin(Protocol):
+    def describe(self) -> PluginDescriptor: ...
+    def validate_availability(self, task: dict, field_dictionary: dict) -> list[dict]: ...
+    def transform(self, history: pd.DataFrame, *, prediction_origin: str, params: dict) -> pd.DataFrame: ...
+
+
+class MechanismPlugin(Protocol):
+    def describe(self) -> PluginDescriptor: ...
+    def applicability(self, data_profile: dict, knowledge: dict) -> dict: ...
+    def fit(self, observations: pd.DataFrame, *, context: dict) -> dict: ...
+
+
+class MetricPlugin(Protocol):
+    def describe(self) -> PluginDescriptor: ...
+    def calculate(self, forecasts: pd.DataFrame, *, params: dict) -> dict: ...
+
+
+class EnterpriseAdapter(Protocol):
+    def describe(self) -> PluginDescriptor: ...
+    def list_authorized_datasets(self, principal: str) -> list[dict]: ...
+    def get_snapshot(self, dataset_ref: str, *, principal: str) -> Path: ...
+    def submit_artifact(self, local_path: Path, *, approval_token: str) -> dict: ...

@@ -1,0 +1,3 @@
+interface:
+  display_name: "机理辨识与可信验证"
+  short_description: "基于状态控制数据辨识动力学并核对工程适用性"

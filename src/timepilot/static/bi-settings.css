@@ -1,0 +1,75 @@
+/* TimePilot v0.2: BI analyst workbench and model settings. */
+.bi-tabs{display:flex;gap:8px;flex-wrap:wrap;border-bottom:1px solid #dce4ee;margin:-2px 0 22px;padding-bottom:12px}
+.bi-tabs a{display:inline-flex;min-height:38px;align-items:center;padding:8px 15px;border-radius:9px;color:#60738a;font-size:13px;font-weight:650}
+.bi-tabs a:hover{background:#eff5fd;color:#1553b6}
+.bi-tabs a.selected{background:#eaf2ff;color:#175bc3}
+.bi-actions{display:flex;gap:9px;flex-wrap:wrap}
+.bi-stats{margin-bottom:19px}
+.bi-stats .stat-card{min-height:144px}
+.bi-main-grid,.settings-columns{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(325px,.9fr);gap:18px;align-items:start}
+.bi-section{margin-top:18px}
+.bi-section>.panel{min-width:0}
+.bi-card-title{display:flex;align-items:center;justify-content:space-between;gap:15px;margin-bottom:8px}
+.bi-card-title h2{margin:0}
+.subtle-tag{display:inline-flex;align-items:center;padding:5px 9px;border-radius:7px;background:#f0f5fb;color:#647a91;font-size:12px;white-space:nowrap}
+.bi-list-panel{padding:0;overflow:hidden}
+.bi-list{display:flex;flex-direction:column}
+.bi-dataset-item{display:flex;align-items:center;gap:14px;padding:17px 23px;border-bottom:1px solid #edf2f7;transition:background .15s;min-width:0}
+.bi-dataset-item:last-child{border-bottom:0}
+.bi-dataset-item:hover{background:#f7faff}
+.bi-dataset-icon{flex:0 0 43px;height:43px;display:grid;place-items:center;background:#eaf2ff;color:#2869c5;border-radius:11px;font-size:22px}
+.bi-dataset-main{display:flex;flex-direction:column;flex:1;gap:5px;min-width:0}
+.bi-dataset-main b{color:#1e3651;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bi-dataset-main small{color:#7a8aa1;font-size:12px}
+.bi-open{font-size:12px;color:#1d61cc;font-weight:650;white-space:nowrap}
+.bi-formcompact{gap:13px;margin-top:17px}
+.bi-formcompact>.field input,.bi-formcompact>.field select,.bi-formcompact .grid .field select,.bi-formcompact .grid .field input{min-height:43px}
+.bi-formcompact .field{gap:6px}
+.bi-ai-panel{background:linear-gradient(150deg,#fff 65%,#f3f8ff)}
+.bi-ai-panel .bi-card-title{flex-wrap:wrap}
+.bi-small-note{font-size:12px!important;color:#8291a6!important;margin-top:17px!important}
+.bi-subnav{display:flex;gap:9px;overflow-x:auto;white-space:nowrap;margin:0 0 17px}
+.bi-subnav a{font-size:12px;color:#48637f;background:#f0f5fa;border:1px solid #e4eaf3;padding:7px 12px;border-radius:8px}
+.bi-subnav a:hover{background:#dceafe;color:#1658ba}
+.bi-sample{max-width:300px;text-overflow:ellipsis;overflow:hidden}
+.bi-inline-form{display:flex;gap:10px;margin:14px 0;max-width:560px}
+.bi-inline-form input{width:100%;min-width:0;padding:8px 13px;border-radius:9px;border:1px solid #cfd9e5;min-height:41px}
+.recipe-list{display:flex;flex-direction:column;gap:7px;margin:14px 0}
+.recipe-list>div{border:1px solid #e2eaf3;background:#f7faff;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 11px;border-radius:8px;font-size:12px}
+.recipe-list small{color:#8a9bb0}
+.bi-result-panel{margin-top:18px;min-width:0}
+.bi-chart-wrap{width:100%;background:#fbfdff;border:1px solid #e4ecf5;border-radius:12px;padding:15px 12px;margin:12px 0 17px;overflow:hidden}
+.bi-chart{width:100%;height:auto;display:block;max-height:300px}
+.bi-proposal{background:#f6f9ff;border:1px solid #c8ddf9;border-radius:10px;padding:14px}
+.bi-proposal h3{color:#1f4c88;margin:0 0 6px}
+.bi-proposal pre,.bi-result-panel pre{font:12px/1.7 ui-monospace,Consolas,monospace;background:#edf3fa;padding:13px;white-space:pre-wrap;word-break:break-word;max-height:230px;overflow:auto;border-radius:7px}
+.settings-tile{display:flex;flex-direction:column;gap:6px;min-height:200px;transition:transform .16s,border-color .16s}
+.settings-tile:hover{transform:translateY(-2px);border-color:#a9c6eb}
+.settings-tile .link{font-size:12px;margin-top:auto}
+.settings-icon{height:35px;color:#2365bb;font-size:25px}
+.settings-feature{border-bottom:1px solid #e9eef5;padding:14px 0}
+.settings-feature:last-child{border-bottom:0}
+.settings-feature b{font-size:14px}
+.settings-feature p{margin:5px 0 0!important}
+.settings-check{display:flex;align-items:center;gap:10px;color:#2b425a;font-size:14px;font-weight:600}
+.settings-check input{width:18px;height:18px}
+.ai-draft{padding:16px;border-radius:12px;border:1px solid #d6e5fa;background:#f6f9ff;display:grid;gap:11px;margin-bottom:18px}
+.ai-draft-head{display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:14px}
+.ai-draft small{color:#607892;font-size:12px}
+.ai-draft textarea{min-height:65px}
+.helper.success{background:#f1fcf6;border-color:#b8e8cd;color:#1d7050}
+.theme-dark{--ink:#e1eaf6;--sub:#a2b4cb;--line:#30435b;--panel:#202f43;--accent:#75a9ff;--nav:#0b1625;--green:#30a778;background:#142033;color:#e1eaf6}
+.theme-dark body,.theme-dark .main-column{background:#142033;color:#e1eaf6}
+.theme-dark .topbar,.theme-dark .panel{background:#202f43;color:#e1eaf6;border-color:#344961}
+.theme-dark .panel h2,.theme-dark .panel h3,.theme-dark .page-heading h1,.theme-dark .data-table td,.theme-dark .bi-dataset-main b{color:#e1eaf6}
+.theme-dark .data-table th,.theme-dark .subtle-tag,.theme-dark .bi-dataset-icon,.theme-dark .bi-subnav a{background:#2a3b52;color:#aebfdd}
+.theme-dark .bi-dataset-item,.theme-dark .key-value,.theme-dark .settings-feature{border-color:#344961}
+.theme-dark .bi-dataset-item:hover{background:#283c54}
+.theme-dark .field input,.theme-dark .field select,.theme-dark .field textarea,.theme-dark .bi-inline-form input{background:#19273a;color:#e1eaf6;border-color:#466079}
+.theme-dark .bi-ai-panel{background:#202f43}
+.theme-dark .bi-tabs a.selected,.theme-dark .recipe-list>div,.theme-dark .bi-proposal{background:#293f59;color:#c4d9fb;border-color:#456387}
+.theme-dark .bi-chart-wrap{background:#1b293c;border-color:#34506d}
+.theme-dark .button:not(.button-primary){background:#283c55;color:#d6e7ff;border-color:#48617e}
+.theme-dark .stat-label,.theme-dark .stat-sub,.theme-dark .panel p{color:#a2b4cb}
+@media(max-width:1090px){.bi-main-grid,.settings-columns{grid-template-columns:1fr}}
+@media(max-width:650px){.bi-stats{grid-template-columns:1fr}.bi-actions{width:100%}.bi-actions>.button{flex:1}.bi-dataset-item{padding:14px 15px}.bi-dataset-main b{font-size:13px}.bi-open{font-size:11px}.bi-card-title{flex-wrap:wrap}.bi-tabs{gap:2px}}

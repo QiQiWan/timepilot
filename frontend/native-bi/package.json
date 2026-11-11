@@ -1,0 +1,21 @@
+{
+  "name": "timepilot-perspective-ui",
+  "private": true,
+  "version": "0.22.1",
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "test": "node --test tests/*.test.mjs",
+    "dev": "vite --host 127.0.0.1"
+  },
+  "dependencies": {
+    "@perspective-dev/client": "5.6.1",
+    "@perspective-dev/server": "5.6.1",
+    "@perspective-dev/viewer": "5.6.1",
+    "@perspective-dev/viewer-datagrid": "5.6.1",
+    "@perspective-dev/viewer-charts": "5.6.1"
+  },
+  "devDependencies": {
+    "vite": "6.3.5"
+  }
+}

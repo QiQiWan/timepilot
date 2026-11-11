@@ -1,0 +1,18 @@
+schema_version: "1.0.0"
+task_id: TP-DEMO-001
+name: "Synthetic demand forecast - example only"
+task_family: demand_forecast
+target: target
+entity_keys: [series_id]
+frequency: MS
+forecast_horizon: 1
+seasonal_period: 12
+model_candidates: [seasonal_naive, moving_average, last_value]
+evaluation:
+  protocol_id: rolling_holdout_v1
+  validation_windows: 4
+  test_horizon: 1
+  primary_metric: WAPE
+  min_history: 12
+training_budget_seconds: 180
+approved: true

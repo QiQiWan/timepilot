@@ -1,0 +1,3 @@
+interface:
+  display_name: "预测任务准备"
+  short_description: "将已保存分析视图转换为需人工确认的预测草稿"

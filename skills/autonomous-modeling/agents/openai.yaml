@@ -1,0 +1,3 @@
+interface:
+  display_name: "可控自主建模与模型比较"
+  short_description: "特征构造、滚动回测、模型选择和结果审计"

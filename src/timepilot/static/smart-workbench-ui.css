@@ -1,0 +1,32 @@
+/* TimePilot v0.8.0 integrated BI + forecast workbench */
+.wb-layout{display:grid;grid-template-columns:minmax(245px,290px) minmax(0,1fr);align-items:start;gap:18px}
+.wb-layout .panel{min-width:0;margin-bottom:16px}
+.wb-filters{position:sticky;top:18px;padding:20px}
+.wb-title{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:10px}
+.wb-title h2,.wb-layout h2{margin:0;font-size:17px}.wb-title .wb-help{font-size:12px;color:#71849a}
+.wb-field{display:grid;gap:7px;padding:11px 0}.wb-field label{font-size:13px;font-weight:600;color:#314763}
+.wb-field select,.wb-field input,.wb-months input,.wb-save-row input,.wb-draft-form input,.wb-draft-form select{width:100%;min-width:0;min-height:40px;border:1px solid #ccdaec;border-radius:8px;padding:8px 10px;background:var(--surface,#fff);color:var(--text,#1c314e);font:inherit}
+.wb-field select:focus,.wb-field input:focus,.wb-months input:focus,.wb-save-row input:focus,.wb-draft-form input:focus{outline:2px solid #7ab3ff;outline-offset:1px}
+.wb-find{display:flex;gap:6px;align-items:center}.wb-find input{min-width:0;flex:1}.wb-find .button{white-space:nowrap}
+.wb-months{border-top:1px solid #e2eaf4;margin-top:10px;padding-top:16px;display:grid;gap:12px}
+.wb-months label,.wb-draft-form label{display:grid;gap:7px;font-size:13px;font-weight:600;color:#314763}
+.wb-selections{padding-top:15px;font-size:12px;color:#55718d}.wb-inline{display:flex;flex-wrap:wrap;gap:7px;margin-top:8px}
+.wb-main{min-width:0}.wb-loading{display:flex;align-items:center;gap:10px;padding:26px;color:#4b6c90}
+.wb-kpis{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.wb-kpi{border:1px solid #e1e8f2;border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:6px;min-width:0}
+.wb-kpi small{color:#647892;font-size:12px}.wb-kpi strong{font-size:23px;line-height:1.2;font-variant-numeric:tabular-nums;overflow:hidden;text-overflow:ellipsis}
+.wb-kpi>span{font-size:12px;color:#7890a7}
+.wb-coverage{margin:17px 0 6px}.wb-coverage-line{display:flex;justify-content:space-between;font-size:13px;margin-bottom:7px}.wb-track{height:8px;background:#e9eff7;border-radius:10px;overflow:hidden;margin-bottom:7px}.wb-track>span{background:#2469c5;height:100%;display:block;border-radius:10px}
+.wb-warnings{display:grid;gap:5px}.wb-warnings .smart-warning{margin:0}
+.wb-plot{overflow-x:auto}.wb-plot svg{display:block;width:100%;min-width:470px;max-height:290px}
+.wb-table{max-height:370px}.wb-table td{vertical-align:middle}.wb-table input[type=checkbox]{width:17px;height:17px;accent-color:#2469c5}
+.wb-cell-meta{display:block;font-size:11px;color:#7c8ba1;white-space:nowrap;margin-top:3px}.wb-save-row{display:flex;gap:9px;align-items:center}.wb-save-row input{flex:1}.wb-save-row .button{white-space:nowrap}
+.wb-list{display:grid;gap:7px;margin-top:15px}.wb-list-item{border:1px solid #dce6f1;background:transparent;border-radius:9px;padding:11px 12px;text-align:left;cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:10px;font:inherit;color:inherit}
+.wb-list-item:hover,.wb-list-item.is-active{background:#eef5ff;border-color:#84b4ef}.wb-list-item small{font-size:12px;color:#60758c;white-space:nowrap}
+.wb-current{font-size:13px;background:#eef6ff;border-radius:8px;padding:10px 12px;color:#214f8e}.wb-current span{color:#6a839d}
+.wb-draft-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:15px;margin-bottom:10px}
+.wb-draft-result{border:1px solid #dbe7f5;padding:16px;border-radius:11px;margin-top:15px}
+.wb-draft-result h3{font-size:16px;margin:0 0 10px}.wb-draft-metrics{display:flex;gap:18px;flex-wrap:wrap;font-size:13px;color:#4e6784;margin-bottom:13px}
+.wb-note{background:#f4f8fc;padding:10px;border-left:3px solid #a0bbd9;font-size:13px}.wb-next{margin-top:12px;border-top:1px solid #e2eaf4;padding-top:12px}
+@media(max-width:1100px){.wb-layout{grid-template-columns:1fr}.wb-filters{position:static}.wb-facets{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:680px){.wb-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.wb-draft-grid{grid-template-columns:1fr}.wb-save-row{flex-wrap:wrap}.wb-save-row .button{width:100%}.wb-list-item{align-items:flex-start;flex-direction:column}}

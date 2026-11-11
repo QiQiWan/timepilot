@@ -1,0 +1,3 @@
+interface:
+  display_name: "数据质量诊断"
+  short_description: "诊断时间覆盖、异常、重复、来源与统计口径"

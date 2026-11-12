@@ -176,6 +176,12 @@ def test_duplicate_blank_csv_header_preserves_raw_names_values(tmp_path):
         assert reg['row_count_estimate']==2
         batch=c.post(f'/api/v1/projects/{pid}/imports/{iid}/publish-batch',
                      json={'region_ids':[reg['region_id']],'confirm':True})
+        assert batch.status_code==422  # Duplicate/blank headers require deliberate review.
+        review=c.post(f'/api/v1/projects/{pid}/imports/{iid}/regions/{reg["region_id"]}/review',
+                      json={'decision':'accepted','confirmed':True,'reason':'源字段和位置已人工核对'})
+        assert review.status_code==200,review.text
+        batch=c.post(f'/api/v1/projects/{pid}/imports/{iid}/publish-batch',
+                     json={'region_ids':[reg['region_id']],'confirm':True})
         assert batch.status_code==202,batch.text
         outcome=app.state.project_publication_jobs.work_once()
         assert outcome['status']=='succeeded',outcome
@@ -284,6 +290,9 @@ def test_annotations_and_formula_are_reported_not_executed(tmp_path):
         rid=reg['region_id']
         batch=c.post(f'/api/v1/projects/{pid}/imports/{iid}/publish-batch',
                      json={'region_ids':[rid],'confirm':True})
+        assert batch.status_code==422  # Do not silently omit the isolated nonempty note.
+        batch=c.post(f'/api/v1/projects/{pid}/imports/{iid}/publish-batch',
+                     json={'region_ids':[rid],'confirm':True,'confirm_unassigned':True})
         assert batch.status_code==202,batch.text
         done=app.state.project_publication_jobs.work_once()
         assert done['status']=='succeeded',done

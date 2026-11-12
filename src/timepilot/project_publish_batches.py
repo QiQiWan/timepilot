@@ -21,6 +21,7 @@ class BatchPublishRequest(BaseModel):
     model_config=ConfigDict(extra='forbid')
     region_ids:list[str]=Field(min_length=1,max_length=300)
     confirm:bool=False
+    confirm_unassigned:bool=False
 
 
 class ProjectPublishBatches:
@@ -57,6 +58,10 @@ class ProjectPublishBatches:
         if not request.confirm:raise SmartImportError('请确认将选中的全部表格发布到正式 BI')
         if len(set(request.region_ids))!=len(request.region_ids):
             raise SmartImportError('发布批次包含重复数据区域')
+        from timepilot.import_data_contract import ImportDataContracts
+        # Review decision must match the current parser/source fingerprint.
+        ImportDataContracts(self.catalog,None).assert_publishable(
+            pid,iid,request.region_ids,confirm_unassigned=request.confirm_unassigned)
         selected=[]
         for region_id in request.region_ids:
             candidate=self.catalog.imports._candidate(manifest,region_id)

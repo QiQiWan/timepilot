@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "timepilot"
-version = "0.22.1"
+version = "0.31.0"
 description = "TimePilot - industrial time-series modeling, evaluation and workflow foundation"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
@@ -27,6 +27,8 @@ dependencies = [
   "httpx>=0.27,<1",
   "cryptography>=43,<47",
   "scipy>=1.14,<2",
+  "scikit-learn>=1.5,<2",
+  "psutil>=6,<8",
   "pysindy>=2,<3",
   "autogluon.timeseries==1.6.1",
   "psycopg[binary]>=3.2,<4",

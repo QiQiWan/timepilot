@@ -151,15 +151,17 @@ def test_frozen_data_scope_and_origin_reproducibility(tmp_path):
         assert c.post(f'/api/v1/projects/{other}/selections/preview',json=req).status_code==404
 
 
-def test_startup_gate_auto_bootstraps_without_python_install():
+def test_startup_gate_never_bootstraps_without_reviewed_build():
     root=Path(__file__).resolve().parents[1]
     source=(root/'scripts/launcher.py').read_text()
     ensure=(root/'scripts/ensure_native_bi.py').read_text()
-    assert "'--auto-build','--auto-bootstrap'" in source
-    assert "TIMEPILOT_OFFLINE" in ensure
-    assert 'scripts/build_native_bi.py' in ensure
+    build=(root/'scripts/BUILD_OFFLINE_RELEASE.sh').read_text()
+    assert "'--auto-build','--auto-bootstrap'" not in source
+    assert "'--status-only'" in source
+    assert 'npm ci' in build
+    assert 'package-lock.json' in build
+    assert '--with-native-bundle' in build
     assert 'pip install' not in ensure
-    assert 'npm' in (root/'scripts/build_native_bi.py').read_text()
 
 
 def test_time_quality_detects_entity_gaps_and_misordered_rows(tmp_path):

@@ -148,7 +148,14 @@ class DataPlatform:
                         pid, action, object_id, json.dumps(details,ensure_ascii=False), utcnow()))
 
     def register(self, pid: str, link: dict, meta: dict) -> dict:
-        self.catalog.require_generic(pid, link['native_asset_id'])
+        # Registration is a read-only catalogue refresh. Trashed links remain
+        # registered but cannot be opened via require_generic().
+        self.catalog.get(pid)
+        with self.catalog._db() as db:
+            linked=db.execute('''SELECT 1 FROM project_generic_assets WHERE project_id=?
+                AND native_asset_id=? AND import_id=? AND candidate_id=?''',
+                (pid,link['native_asset_id'],link['import_id'],link['candidate_id'])).fetchone()
+        if not linked:raise KeyError('当前项目没有该资产来源')
         stable=str(uuid5(NAMESPACE_URL, 'timepilot-asset:'+pid+':'+link['import_id']+':'+link['candidate_id']))
         stamp=utcnow()
         with self.catalog._lock,self.catalog._db() as db:
@@ -161,6 +168,14 @@ class DataPlatform:
                 VALUES (?,?,?,?,?,?,?,?)''',
                 (pid,stable,link['version_id'],link['native_asset_id'],meta['data_sha256'],
                  meta['row_count'],meta['column_count'],meta['created_at']))
+            # Search index is refreshed without changing immutable asset versions.
+            if db.execute("SELECT 1 FROM sqlite_master WHERE name='asset_search_index'").fetchone():
+                fields=json.dumps([x['name'] for x in meta.get('columns',[])],ensure_ascii=False)
+                db.execute('''INSERT INTO asset_search_index(project_id,asset_id,name,source_file,source_sheet,fields_json,updated_at)
+                    VALUES(?,?,?,?,?,?,?) ON CONFLICT(project_id,asset_id) DO UPDATE SET
+                    source_file=excluded.source_file,source_sheet=excluded.source_sheet,
+                    fields_json=excluded.fields_json''',
+                    (pid,stable,meta['name'],meta.get('source_file') or '',meta.get('source_sheet') or '',fields,stamp))
             row=db.execute('SELECT * FROM unified_assets WHERE asset_id=? AND project_id=?',(stable,pid)).fetchone()
         return dict(row)
 
@@ -170,6 +185,9 @@ class DataPlatform:
             row=db.execute('SELECT * FROM unified_assets WHERE project_id=? AND asset_id=?',(pid,aid)).fetchone()
         if row is None:
             raise KeyError('项目中不存在该统一数据资产')
+        with self.catalog._db() as db:
+            hidden=db.execute('SELECT state FROM asset_lifecycle WHERE project_id=? AND asset_id=?',(pid,aid)).fetchone()
+        if hidden and hidden['state']=='trashed':raise KeyError('该资产已移入回收站，请先恢复')
         return dict(row)
 
     def _version(self, pid: str, aid: str, version: str | None):
@@ -182,13 +200,17 @@ class DataPlatform:
         self.catalog.require_generic(pid,row['native_asset_id'])
         return asset,dict(row)
 
-    def list_assets(self, pid: str) -> list[dict]:
+    def list_assets(self, pid: str, *, include_trashed=False) -> list[dict]:
         self.catalog.get(pid)
         records={}
+        with self.catalog._db() as db:
+            lifecycle={r['asset_id']:r['state'] for r in db.execute('SELECT asset_id,state FROM asset_lifecycle WHERE project_id=?',(pid,))}
         for link in self.catalog.generic_for(pid):
             try:
                 meta=self.generic.version(link['import_id'],link['candidate_id'],link['version_id'])
                 record=self.register(pid,link,meta)
+                life=lifecycle.get(record['asset_id'],'active')
+                if life=='trashed' and not include_trashed:continue
                 quality=self.latest_quality(pid,record['asset_id'],link['version_id'])
                 item={'asset_id':record['asset_id'],'native_asset_id':link['native_asset_id'],
                                'name':record['name'],'kind':'generic_table','version_id':link['version_id'],
@@ -200,7 +222,7 @@ class DataPlatform:
                                'quality_status':quality.get('status') if quality else 'unchecked',
                                'quality_issue_count':quality.get('issue_count',0) if quality else 0,
                                'data_sha256':meta['data_sha256'],
-                               'missing':False}
+                               'missing':False,'lifecycle_state':life}
                 prior=records.get(record['asset_id'])
                 if prior is None or (meta['created_at'],link['version_id']) > (prior['content_created_at'],prior['version_id']):
                     item['content_created_at']=meta['created_at']
@@ -251,6 +273,8 @@ class DataPlatform:
         with self.catalog._lock,self.catalog._db() as db:
             db.execute('UPDATE unified_assets SET name=?,updated_at=? WHERE project_id=? AND asset_id=?',
                        (name.strip(),utcnow(),pid,aid))
+            db.execute('UPDATE asset_search_index SET name=?,updated_at=? WHERE project_id=? AND asset_id=?',
+                       (name.strip(),utcnow(),pid,aid))
         self.audit(pid,'asset.rename',aid,{'name':name.strip()})
         return self._resolve(pid,aid)
 
@@ -269,7 +293,15 @@ class DataPlatform:
         return asset,ver,meta,self.generic.version_file(link['import_id'],link['candidate_id'],link['version_id'])
 
     def create_selection(self,pid,request:SelectionInput,*,save=True):
-        link=self.catalog.require_generic(pid,request.native_asset_id)
+        try:
+            self.catalog.require_generic(pid,request.native_asset_id)
+        except KeyError:
+            # Only a reviewed, project-scoped derived native asset may bypass
+            # the legacy generic-table directory.
+            self.catalog.require_native(pid,request.native_asset_id)
+            lineage=self.native.asset(request.native_asset_id).get('lineage',{})
+            if lineage.get('type')!='bi_agent_derived' or lineage.get('project_id')!=pid:
+                raise ValueError('原生 BI 副本未经派生资产审批，不能冻结用于建模')
         asset=self.native.asset(request.native_asset_id) if self.native else None
         if asset is None:
             raise ValueError('原生 BI 尚未准备好，无法冻结完整行集')
@@ -310,7 +342,12 @@ class DataPlatform:
             row=db.execute('SELECT document FROM unified_selections WHERE selection_id=? AND project_id=?',(sid,pid)).fetchone()
         if row is None:raise KeyError('项目中不存在该冻结数据选择')
         payload=json.loads(row['document'])
-        self.catalog.require_generic(pid,payload['native_asset_id'])
+        try:self.catalog.require_generic(pid,payload['native_asset_id'])
+        except KeyError:
+            self.catalog.require_native(pid,payload['native_asset_id'])
+            lineage=self.native.asset(payload['native_asset_id']).get('lineage',{})
+            if lineage.get('type')!='bi_agent_derived' or lineage.get('project_id')!=pid:
+                raise ValueError('未审核的原生副本不得复用冻结数据选择')
         if signature({k:v for k,v in payload.items() if k not in ('selection_hash','selection_id','created_at')})!=payload['selection_hash']:
             raise ValueError('冻结选择内容校验失败')
         return payload

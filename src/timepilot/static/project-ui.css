@@ -69,3 +69,21 @@
 @media(max-width:950px){.tp-import-review-grid{grid-template-columns:1fr}.tp-import-tree{max-height:400px}}
 
 .tp-data-group-heading td{background:#f4f7fb;color:#4d6480;padding:10px 14px;font-size:12px;font-weight:700;border-top:1px solid #e4eaf2}
+/* v0.23.4 compact import summary first; source details are opt-in. */
+.tp-import-summary-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}
+.tp-import-summary-card{display:flex;flex-direction:column;gap:7px;padding:14px;border:1px solid #e1e8f2;border-radius:10px;min-width:0}
+.tp-import-summary-card b{font-size:12px;color:#546c83}
+.tp-import-summary-card strong{font-size:20px;color:#214c81}
+.tp-import-summary-card p,.tp-import-summary-card small{font-size:12px;margin:0;overflow-wrap:anywhere}
+.tp-import-summary-card .button{align-self:start}
+.tp-import-source-details{margin-top:14px}
+.tp-import-source-details>summary{padding:13px 16px;cursor:pointer;background:white;border:1px solid #dde6f2;border-radius:10px;font-weight:650}
+.tp-import-source-details>.tp-import-review-grid{margin-top:12px}
+/* Project-scoped asset management (v0.23.6). */
+.tp-assets-toolbar{display:flex;gap:12px;align-items:end;flex-wrap:wrap;margin:12px 0}
+.tp-assets-toolbar .field:first-child{flex:2;min-width:220px}
+.tp-assets-toolbar .field{flex:1;min-width:132px}
+.tp-assets-actions{white-space:nowrap;display:flex;gap:6px}
+.tp-assets-pagination{display:flex;align-items:center;justify-content:center;gap:12px;padding:12px}
+.tp-asset-modal{border:1px solid var(--line,#ddd);border-radius:12px;padding:22px;width:min(480px,calc(100vw - 32px));color:inherit;background:var(--surface,#fff)}
+.tp-asset-modal::backdrop{background:rgba(16,24,40,.48)}

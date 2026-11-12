@@ -11,6 +11,7 @@ import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Literal
 from urllib.parse import urlsplit
 
 import httpx
@@ -33,6 +34,8 @@ class ModelConfig(BaseModel):
     temperature: float = Field(default=0, ge=0, le=2)
     max_tokens: int = Field(default=1024, ge=32, le=4096)
     share_schema_only: bool = True
+    # Explicit opt-in, only for providers known to accept OpenAI reasoning_effort.
+    reasoning_effort: Literal["off","low","medium","high"] = "off"
 
     @field_validator("provider_id")
     @classmethod
@@ -199,6 +202,12 @@ class ModelGateway:
                 headers["Authorization"] = f"Bearer {secret}"
             payload = {"model": config.model, "messages": messages, "temperature": config.temperature,
                        "max_tokens": min(config.max_tokens, max_tokens or config.max_tokens)}
+            if config.reasoning_effort != "off" and config.provider_id == "openai":
+                # Reasoning models may reject temperature and the legacy token
+                # key; never silently send vendor-specific options to others.
+                payload.pop("temperature", None)
+                payload["max_completion_tokens"] = payload.pop("max_tokens")
+                payload["reasoning_effort"] = config.reasoning_effort
         try:
             with self._http_client_factory(timeout=config.timeout_seconds, follow_redirects=False, trust_env=False) as http:
                 reply = http.post(endpoint, headers=headers, json=payload)

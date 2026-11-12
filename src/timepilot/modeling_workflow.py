@@ -200,7 +200,13 @@ class ModelingWorkbench:
             ''')
 
     def _source(self, pid: str, aid: str, version: str = 'base') -> dict:
-        link = self.catalog.require_generic(pid, aid)
+        try:
+            link = self.catalog.require_generic(pid, aid)
+        except KeyError:
+            # Reviewed materialized BI derivations are first-class model sources.
+            if getattr(self, 'derived', None) is None:
+                raise
+            return self.derived.model_source(pid,aid,version)
         meta = self.generic.version(link['import_id'], link['candidate_id'], link['version_id'])
         path = self.generic.version_file(link['import_id'], link['candidate_id'], link['version_id'])
         native = self.native.asset(aid)

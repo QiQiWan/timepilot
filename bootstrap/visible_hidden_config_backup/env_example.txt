@@ -1,4 +1,6 @@
-TIMEPILOT_HOME=./runtime   # optional: defaults to ~/.timepilot
+# Optional: leave unset to use ~/.timepilot for a new installation.
+# An existing source/runtime folder stays in use for backwards compatibility.
+# TIMEPILOT_HOME=/absolute/local/path/to/timepilot-data
 TIMEPILOT_DB_URL=
 TIMEPILOT_HOST=127.0.0.1
 TIMEPILOT_PORT=8000

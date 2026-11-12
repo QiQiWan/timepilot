@@ -47,7 +47,14 @@ def inspect(*, require_runtime: bool = False, integration: bool = False,
                     else:
                         warnings.append('RELEASE-ONLY: requirements.txt differs from pyproject.toml')
             api_source = (ROOT / 'src/timepilot/api.py').read_text(encoding='utf-8')
-            if f'version="{version}"' not in api_source or f'"ui_version": "{version}"' not in api_source:
+            # The API can reference the package's version dynamically. Requiring
+            # a duplicate hard-coded literal makes legitimate incremental releases
+            # fail even when FastAPI and the package report the same version.
+            api_version_matches = ('version=__version__' in api_source or
+                                   f'version="{version}"' in api_source)
+            ui_version_matches = ('"ui_version": __version__' in api_source or
+                                  f'"ui_version": "{version}"' in api_source)
+            if not (api_version_matches and ui_version_matches):
                 issues.append('MIXED VERSION: FastAPI advertised version differs from Python package')
             package_file = ROOT / 'frontend/native-bi/package.json'
             if package_file.is_file():

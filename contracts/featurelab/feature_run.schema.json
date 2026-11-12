@@ -1,0 +1,78 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "run_id": {
+      "minLength": 1,
+      "title": "Run Id",
+      "type": "string"
+    },
+    "project_id": {
+      "minLength": 1,
+      "title": "Project Id",
+      "type": "string"
+    },
+    "set_id": {
+      "minLength": 1,
+      "title": "Set Id",
+      "type": "string"
+    },
+    "revision": {
+      "minimum": 1,
+      "title": "Revision",
+      "type": "integer"
+    },
+    "source_sha256": {
+      "minLength": 32,
+      "title": "Source Sha256",
+      "type": "string"
+    },
+    "spec_sha256": {
+      "minLength": 32,
+      "title": "Spec Sha256",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "queued",
+        "running",
+        "cancel_requested",
+        "cancelled",
+        "succeeded",
+        "failed_retryable",
+        "failed_terminal"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "artifact_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Artifact Id"
+    },
+    "progress": {
+      "default": 0.0,
+      "maximum": 1,
+      "minimum": 0,
+      "title": "Progress",
+      "type": "number"
+    }
+  },
+  "required": [
+    "run_id",
+    "project_id",
+    "set_id",
+    "revision",
+    "source_sha256",
+    "spec_sha256",
+    "status"
+  ],
+  "title": "FeatureRunRecord",
+  "type": "object"
+}

@@ -16,6 +16,10 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from timepilot.data_assets import asset_id_for
 from timepilot.enterprise_security import CURRENT_PRINCIPAL, SecurityError
+from timepilot.project_migrations import (
+    TARGET_SCHEMA, _ddl, backup_before_upgrade, catalog_startup_lock,
+    migrate, require_supported_catalog,
+)
 
 
 def now():
@@ -54,7 +58,13 @@ class ProjectCatalog:
         self.engine = engine
         self.experiments = experiments
         self._lock = threading.RLock()
-        self._setup()
+        # Verify before any DDL, even when the current release is older than
+        # the on-disk catalog. A source copy must never silently reset data.
+        with catalog_startup_lock(self.root / '.catalog-init.lock'):
+            self.startup_catalog = require_supported_catalog(self.db_file)
+            self.upgrade_backup = backup_before_upgrade(self.db_file)
+            self._setup()
+            self.startup_catalog_after = require_supported_catalog(self.db_file)
 
     def _db(self):
         db = sqlite3.connect(self.db_file, timeout=15)
@@ -66,7 +76,8 @@ class ProjectCatalog:
     def _setup(self):
         with self._lock, self._db() as db:
             db.execute('PRAGMA journal_mode=WAL')
-            db.executescript('''
+            db.execute('BEGIN IMMEDIATE')
+            _ddl(db, '''
                 CREATE TABLE IF NOT EXISTS project_schema(version INTEGER NOT NULL);
                 CREATE TABLE IF NOT EXISTS projects(
                     id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT NOT NULL,
@@ -134,8 +145,11 @@ class ProjectCatalog:
                 db.execute('UPDATE project_schema SET version=4 WHERE version=2')
             elif version == 3:
                 db.execute('UPDATE project_schema SET version=4 WHERE version=3')
-            elif version != 4:
-                raise ProjectError('项目目录的数据库版本未知，禁止直接修改旧库')
+            elif not 4 <= version <= TARGET_SCHEMA:
+                raise ProjectError(
+                    f'Unsupported project schema v{version}; supported range 1..{TARGET_SCHEMA}. '
+                    'No automatic downgrade or database reset is permitted.')
+            migrate(db)
 
     @staticmethod
     def _id(value):
@@ -233,6 +247,11 @@ class ProjectCatalog:
                                     (self._id(pid),)).fetchone()
                 if active:
                     raise ProjectError('项目仍有数据上传或结构扫描任务，请先完成或取消后再归档')
+        with self._db() as db:
+            if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='feature_jobs'").fetchone():
+                pending=db.execute('''SELECT 1 FROM feature_jobs WHERE project_id=?
+                    AND status IN ('queued','running','cancel_requested') LIMIT 1''',(self._id(pid),)).fetchone()
+                if pending:raise ProjectError('项目仍有特征计算任务，请先结束任务再归档')
         if self.engine is None:
             return
         ids = {r['run_id'] for r in self.runs(pid)}
@@ -447,6 +466,13 @@ class ProjectCatalog:
                            (self._id(pid),native_asset_id)).fetchone()
         if row is None:
             raise KeyError('该项目没有此通用数据资产')
+        with self._db() as db:
+            if db.execute("SELECT 1 FROM sqlite_master WHERE name='unified_assets'").fetchone():
+                hidden=db.execute('''SELECT 1 FROM unified_assets a JOIN asset_lifecycle l
+                    ON a.project_id=l.project_id AND a.asset_id=l.asset_id
+                    WHERE a.project_id=? AND a.import_id=? AND a.candidate_id=?
+                    AND l.state='trashed' LIMIT 1''',(pid,row['import_id'],row['candidate_id'])).fetchone()
+                if hidden:raise KeyError('资产已移入回收站，请先恢复再打开')
         return dict(row)
 
     def attach_native(self, pid, native_asset_id, source_asset_id):

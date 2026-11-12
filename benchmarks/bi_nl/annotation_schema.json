@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TimePilot BI fuzzy requests annotation schema (development evaluation)",
+  "type": "object",
+  "required": ["case_id", "utterance", "available_schema", "current_workspace", "expected_intents", "feasibility", "gold_fields", "allowed_defaults", "expected_tool_effects", "expected_result_shape", "clarification_gold", "unsafe_actions", "reviewer_1", "reviewer_2", "adjudication_status"],
+  "properties": {
+    "case_id": {"type": "string", "pattern": "^BI-FZ-[0-9]{3}$"},
+    "category": {"type": "string"},
+    "utterance": {"type": "string", "minLength": 1},
+    "available_schema": {"type": "array", "items": {"type": "object", "required": ["name", "physical_type"]}},
+    "current_workspace": {"type": "object"},
+    "expected_intents": {"type": "array", "items": {"type": "string"}},
+    "feasibility": {"type": "string"},
+    "gold_fields": {"type": "array", "items": {"type": "string"}},
+    "allowed_defaults": {"type": "array", "items": {"type": "string"}},
+    "expected_tool_effects": {"type": "array", "items": {"type": "string"}},
+    "expected_result_shape": {"type": "array", "items": {"type": "integer"}},
+    "clarification_gold": {"type": "string"},
+    "unsafe_actions": {"type": "array", "items": {"type": "string"}},
+    "reviewer_1": {"type": ["string", "null"]},
+    "reviewer_2": {"type": ["string", "null"]},
+    "adjudication_status": {"enum": ["developer_synthetic_unreviewed", "double_blind_reviewed", "adjudicated"]}
+  }
+}

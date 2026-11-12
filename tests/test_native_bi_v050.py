@@ -3,6 +3,7 @@
 DuckDB-dependent end-to-end tests intentionally skip if the runtime cannot
 install the optional binary. See scripts/benchmark_native_bi.py for data scale.
 """
+from timepilot import __version__
 import hashlib
 import json
 from pathlib import Path
@@ -84,7 +85,7 @@ def test_native_api_routes_and_local_mode(tmp_path):
         bad=client.post('/api/v1/native-bi/query',json={'asset_id':'nonexistent','limit':1001})
         assert bad.status_code==422
         html=client.get('/').text
-        assert '/assets/native-bi.js?v=0.22.1' in html
+        assert f'/assets/native-bi.js?v={__version__}' in html
 
 
 def test_view_save_is_json_and_versioned(tmp_path):

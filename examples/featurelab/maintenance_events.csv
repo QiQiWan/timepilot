@@ -1,0 +1,2 @@
+event_id,device_id,event_type,start_time,end_time,available_at,source_record_id
+M0001,EQ-A,filter_replacement,2026-11-09T09:30:00+08:00,2026-11-09T09:45:00+08:00,2026-11-09T09:46:00+08:00,MAINT-884

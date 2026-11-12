@@ -12,6 +12,7 @@ import sqlite3
 import sys
 from datetime import datetime,timezone
 from pathlib import Path
+from urllib.parse import quote
 
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/'src'))
@@ -39,7 +40,7 @@ def prepare(home:Path,version:str):
     recorded={}
     for name,source in sources.items():
         if not source.is_file():continue
-        with sqlite3.connect(f'file:{source}?mode=ro',uri=True,timeout=30) as original:
+        with sqlite3.connect('file:' + quote(str(source.resolve()), safe='/:') + '?mode=ro',uri=True,timeout=30) as original:
             if original.execute('PRAGMA integrity_check').fetchone()[0]!='ok':
                 raise RuntimeBackupError('源数据库未通过完整性校验，已停止升级：'+name)
             out=backup_dir/name

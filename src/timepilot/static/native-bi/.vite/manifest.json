@@ -1,0 +1,24 @@
+{
+  "node_modules/@perspective-dev/server/dist/wasm/perspective-server.wasm": {
+    "file": "assets/perspective-server-B8sj_i73.wasm",
+    "src": "node_modules/@perspective-dev/server/dist/wasm/perspective-server.wasm"
+  },
+  "node_modules/@perspective-dev/viewer/dist/wasm/perspective-viewer.wasm": {
+    "file": "assets/perspective-viewer-DJE5Ocjz.wasm",
+    "src": "node_modules/@perspective-dev/viewer/dist/wasm/perspective-viewer.wasm"
+  },
+  "src/main.js": {
+    "file": "perspective-entry.js",
+    "name": "main",
+    "src": "src/main.js",
+    "isEntry": true,
+    "assets": [
+      "assets/perspective-server-B8sj_i73.wasm",
+      "assets/perspective-viewer-DJE5Ocjz.wasm"
+    ]
+  },
+  "style.css": {
+    "file": "perspective-entry.css",
+    "src": "style.css"
+  }
+}

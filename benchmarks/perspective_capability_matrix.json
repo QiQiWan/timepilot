@@ -1,0 +1,273 @@
+{
+  "perspective_version": "5.6.1",
+  "timepilot_version": "0.24.0",
+  "evidence_level": "code_mapping_only_requires_live_browser_engine_evidence",
+  "features": [
+    {
+      "feature_id": "aggregate",
+      "tool": "bi.aggregate.run",
+      "tool_registered": true,
+      "effect": "presentation",
+      "runtime_target": "viewer",
+      "source_implemented": true,
+      "end_to_end_verified": false,
+      "test_id": "PS-02"
+    },
+    {
+      "feature_id": "chart.area",
+      "tool": "bi.chart.create",
+      "tool_registered": true,
+      "effect": "presentation",
+      "runtime_target": "Y Area",
+      "source_implemented": true,
+      "end_to_end_verified": false,
+      "test_id": "PS-02"
+    },
+    {
+      "feature_id": "chart.bar",
+      "tool": "bi.chart.create",
+      "tool_registered": true,
+      "effect": "presentation",
+      "runtime_target": "Y Bar",
+      "source_implemented": true,
+      "end_to_end_verified": false,
+      "test_id": "PS-02"
+    },
+    {
+      "feature_id": "chart.grid",
+      "tool": "bi.chart.create",
+      "tool_registered": true,
+      "effect": "presentation",
+      "runtime_target": "Datagrid",
+      "source_implemented": true,
+      "end_to_end_verified": false,
+      "test_id": "PS-02"
+    },
+    {
+      "feature_id": "chart.line",
+      "tool": "bi.chart.create",
+      "tool_registered": true,
+      "effect": "presentation",
+      "runtime_target": "Y Line",
+      "source_implemented": true,
+      "end_to_end_verified": false,
+      "test_id": "PS-02"
+    },
+    {
+      "feature_id": "chart.plugin.set",
+      "tool": "bi.chart.plugin.set",
+      "tool_registered": true,
+      "effect": "presentation",
+      "runtime_target": "viewer",
+      "source_implemented": true,
+      "end_to_end_verified": false,
+      "test_id": "PS-02"
+    },
+    {
+      "feature_id": "chart.scatter",
+      "tool": "bi.chart.create",
+      "tool_registered": true,
+      "effect": "presentation",
+      "runtime_target": "X/Y Scatter",
+      "source_implemented": true,
+      "end_to_end_verified": false,
+      "test_id": "PS-02"
+    },
+    {
+      "feature_id": "columns.set",
+      "tool": "bi.columns.set",
+      "tool_registered": true,
+      "effect": "presentation",
+      "runtime_target": "viewer",
+      "source_implemented": true,
+      "end_to_end_verified": false,
+      "test_id": "PS-02"
+    },
+    {
+      "feature_id": "filter.clear",
+      "tool": "bi.filter.clear",
+      "tool_registered": true,
+      "effect": "presentation",
+      "runtime_target": "viewer",
+      "source_implemented": true,
+      "end_to_end_verified": false,
+      "test_id": "PS-02"
+    },
+    {
+      "feature_id": "filter.set",
+      "tool": "bi.filter.set",
+      "tool_registered": true,
+      "effect": "presentation",
+      "runtime_target": "viewer",
+      "source_implemented": true,
+      "end_to_end_verified": false,
+      "test_id": "PS-02"
+    },
+    {
+      "feature_id": "group_by",
+      "tool": "bi.aggregate.run",
+      "tool_registered": true,
+      "effect": "presentation",
+      "runtime_target": "viewer",
+      "source_implemented": true,
+      "end_to_end_verified": false,
+      "test_id": "PS-02"
+    },
+    {
+      "feature_id": "rows.peek",
+      "tool": "bi.rows.peek",
+      "tool_registered": true,
+      "effect": "read",
+      "runtime_target": "backend",
+      "source_implemented": true,
+      "end_to_end_verified": false,
+      "test_id": "PS-02"
+    },
+    {
+      "feature_id": "schema.inspect",
+      "tool": "bi.schema.inspect",
+      "tool_registered": true,
+      "effect": "read",
+      "runtime_target": "backend",
+      "source_implemented": true,
+      "end_to_end_verified": false,
+      "test_id": "PS-02"
+    },
+    {
+      "feature_id": "sort.clear",
+      "tool": "bi.sort.clear",
+      "tool_registered": true,
+      "effect": "presentation",
+      "runtime_target": "viewer",
+      "source_implemented": true,
+      "end_to_end_verified": false,
+      "test_id": "PS-02"
+    },
+    {
+      "feature_id": "sort.set",
+      "tool": "bi.sort.set",
+      "tool_registered": true,
+      "effect": "presentation",
+      "runtime_target": "viewer",
+      "source_implemented": true,
+      "end_to_end_verified": false,
+      "test_id": "PS-02"
+    },
+    {
+      "feature_id": "split_by",
+      "tool": "bi.pivot.split.set",
+      "tool_registered": true,
+      "effect": "presentation",
+      "runtime_target": "viewer",
+      "source_implemented": true,
+      "end_to_end_verified": false,
+      "test_id": "PS-02"
+    },
+    {
+      "feature_id": "statistics.correlation",
+      "tool": "bi.stats.correlation",
+      "tool_registered": true,
+      "effect": "compute",
+      "runtime_target": "backend",
+      "source_implemented": true,
+      "end_to_end_verified": false,
+      "test_id": "PS-02"
+    },
+    {
+      "feature_id": "viewer.settings",
+      "tool": "bi.viewer.settings.toggle",
+      "tool_registered": true,
+      "effect": "presentation",
+      "runtime_target": "viewer",
+      "source_implemented": true,
+      "end_to_end_verified": false,
+      "test_id": "PS-02"
+    },
+    {
+      "feature_id": "viewer.theme",
+      "tool": "bi.viewer.theme.set",
+      "tool_registered": true,
+      "effect": "presentation",
+      "runtime_target": "viewer",
+      "source_implemented": true,
+      "end_to_end_verified": false,
+      "test_id": "PS-02"
+    },
+    {
+      "feature_id": "workspace.panels",
+      "tool": "bi.chart.add_panel",
+      "tool_registered": true,
+      "effect": "presentation",
+      "runtime_target": "viewer",
+      "source_implemented": true,
+      "end_to_end_verified": false,
+      "test_id": "PS-02"
+    },
+    {
+      "feature_id": "workspace.snapshot",
+      "tool": "bi.view.save",
+      "tool_registered": true,
+      "effect": "presentation",
+      "runtime_target": "viewer",
+      "source_implemented": true,
+      "end_to_end_verified": false,
+      "test_id": "PS-02"
+    }
+  ],
+  "unsupported": [
+    {
+      "feature_id": "asset.write",
+      "reason": "只能通过受权限保护的编辑草稿与新版本提交，不开放直接 Viewer.update",
+      "end_to_end_verified": false,
+      "test_id": "PS-03"
+    },
+    {
+      "feature_id": "chart.heatmap.native",
+      "reason": "插件名称及布局需要 Perspective 5.6.1 真实浏览器枚举后确认",
+      "end_to_end_verified": false,
+      "test_id": "PS-03"
+    },
+    {
+      "feature_id": "crossfilter",
+      "reason": "原生交叉筛选需要浏览器事件与后端选择范围双向一致性验收",
+      "end_to_end_verified": false,
+      "test_id": "PS-03"
+    },
+    {
+      "feature_id": "expression.exprtk",
+      "reason": "DuckDB 和 ExprTK 表达式不能直接互换，必须通过逐语法验证转换器",
+      "end_to_end_verified": false,
+      "test_id": "PS-03"
+    },
+    {
+      "feature_id": "grid.conditional_format",
+      "reason": "当前插件配置未完成图形化/Agent 状态一致性验收",
+      "end_to_end_verified": false,
+      "test_id": "PS-03"
+    },
+    {
+      "feature_id": "join.native",
+      "reason": "关联分析使用现有安全预检与受限查询，未完成单工作区派生表绑定",
+      "end_to_end_verified": false,
+      "test_id": "PS-03"
+    },
+    {
+      "feature_id": "stream.update",
+      "reason": "不可变 Parquet 快照不宣称实时更新，只有指定流具有推送能力",
+      "end_to_end_verified": false,
+      "test_id": "PS-03"
+    },
+    {
+      "feature_id": "theme.settings",
+      "reason": "当前版本尚未验证主题配置 JSON Schema 与 Viewer 对照",
+      "end_to_end_verified": false,
+      "test_id": "PS-03"
+    },
+    {
+      "feature_id": "window.native",
+      "reason": "窗口函数使用现有 DuckDB 受限计算，未完成 Perspective 原生绑定",
+      "end_to_end_verified": false,
+      "test_id": "PS-03"
+    }
+  ]
+}

@@ -1,0 +1,278 @@
+{
+  "$defs": {
+    "FieldContract": {
+      "additionalProperties": false,
+      "properties": {
+        "field_id": {
+          "maxLength": 100,
+          "minLength": 5,
+          "title": "Field Id",
+          "type": "string"
+        },
+        "source_name": {
+          "title": "Source Name",
+          "type": "string"
+        },
+        "source_column_index": {
+          "minimum": 0,
+          "title": "Source Column Index",
+          "type": "integer"
+        },
+        "physical_type": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Physical Type",
+          "type": "string"
+        },
+        "display_name": {
+          "anyOf": [
+            {
+              "maxLength": 160,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Display Name"
+        },
+        "semantic_type": {
+          "default": "unknown",
+          "enum": [
+            "unknown",
+            "numeric",
+            "string",
+            "datetime",
+            "category",
+            "id",
+            "boolean",
+            "event",
+            "target"
+          ],
+          "title": "Semantic Type",
+          "type": "string"
+        },
+        "role": {
+          "default": "unspecified",
+          "enum": [
+            "unspecified",
+            "entity_key",
+            "event_time",
+            "available_at",
+            "ingested_at",
+            "prediction_time",
+            "value",
+            "regime",
+            "label",
+            "batch_key",
+            "record_id"
+          ],
+          "title": "Role",
+          "type": "string"
+        },
+        "unit": {
+          "anyOf": [
+            {
+              "maxLength": 40,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Unit"
+        },
+        "timezone": {
+          "anyOf": [
+            {
+              "maxLength": 80,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Timezone"
+        },
+        "source_location": {
+          "anyOf": [
+            {
+              "maxLength": 240,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Location"
+        },
+        "classification": {
+          "default": "internal",
+          "enum": [
+            "public",
+            "internal",
+            "restricted"
+          ],
+          "title": "Classification",
+          "type": "string"
+        },
+        "confirmation": {
+          "default": "unconfirmed",
+          "enum": [
+            "unconfirmed",
+            "proposed",
+            "confirmed"
+          ],
+          "title": "Confirmation",
+          "type": "string"
+        },
+        "confidence": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Confidence"
+        },
+        "evidence": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 30,
+          "title": "Evidence",
+          "type": "array"
+        }
+      },
+      "required": [
+        "field_id",
+        "source_name",
+        "source_column_index",
+        "physical_type"
+      ],
+      "title": "FieldContract",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "asset_id": {
+      "minLength": 1,
+      "title": "Asset Id",
+      "type": "string"
+    },
+    "version_id": {
+      "minLength": 1,
+      "title": "Version Id",
+      "type": "string"
+    },
+    "source_sha256": {
+      "maxLength": 128,
+      "minLength": 32,
+      "title": "Source Sha256",
+      "type": "string"
+    },
+    "revision": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Revision",
+      "type": "integer"
+    },
+    "state": {
+      "default": "detected",
+      "enum": [
+        "detected",
+        "needs_review",
+        "confirmed",
+        "stale"
+      ],
+      "title": "State",
+      "type": "string"
+    },
+    "fields": {
+      "items": {
+        "$ref": "#/$defs/FieldContract"
+      },
+      "minItems": 1,
+      "title": "Fields",
+      "type": "array"
+    },
+    "entity_field_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Entity Field Ids",
+      "type": "array"
+    },
+    "event_time_field_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Event Time Field Id"
+    },
+    "available_at_field_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Available At Field Id"
+    },
+    "timezone": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Timezone"
+    },
+    "duplicate_policy": {
+      "default": "reject",
+      "enum": [
+        "reject",
+        "keep_all_by_rowid",
+        "aggregate",
+        "latest"
+      ],
+      "title": "Duplicate Policy",
+      "type": "string"
+    }
+  },
+  "required": [
+    "asset_id",
+    "version_id",
+    "source_sha256",
+    "fields"
+  ],
+  "title": "DataContract",
+  "type": "object"
+}

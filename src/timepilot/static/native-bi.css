@@ -59,3 +59,13 @@
 .tp-industrial-events td {font-size:12px;padding:7px 10px}
 .tp-industrial-saved {display:flex;flex-wrap:wrap;align-items:center;gap:8px;border-top:1px solid #e6edf4;margin-top:16px;padding-top:14px}
 .tp-industrial-saved>strong {font-size:13px;margin-right:12px}
+/* v0.23.5 source-backed correlation matrix in the same BI canvas. */
+.tp-heatmap{width:100%;height:100%;min-height:0;display:flex;flex-direction:column;gap:9px;padding:8px}
+.tp-heatmap-title{font-weight:700;font-size:14px}
+.tp-heatmap-scroll{overflow:auto;flex:1;min-height:0;max-width:100%;border:1px solid #e0e7ef;border-radius:8px}
+.tp-heatmap-table{border-collapse:separate;border-spacing:3px;font-size:11px;margin:0 auto}
+.tp-heatmap-table th{position:sticky;top:0;z-index:1;background:#f5f7fa;padding:7px;min-width:60px;max-width:150px;overflow-wrap:anywhere}
+.tp-heatmap-table tbody th{left:0;z-index:2}
+.tp-heatmap-cell{text-align:center;min-width:48px;padding:11px 3px;border-radius:4px;color:#10283e;font-variant-numeric:tabular-nums;cursor:help}
+.tp-heatmap-cell.is-undefined{background:#e8ebef;color:#65758a}
+.tp-heatmap-legend{font-size:11px;margin:0}

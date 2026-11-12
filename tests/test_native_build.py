@@ -40,6 +40,7 @@ def setup_mock(tmp_path, monkeypatch, succeed):
     (frontend / 'node_modules').mkdir(parents=True)
     (frontend / 'node_modules/.package-lock.json').write_text('{}')
     (frontend / 'package.json').write_text('{"dependencies":{},"devDependencies":{}}')
+    (frontend / 'package-lock.json').write_text('{"name":"test-build","lockfileVersion":3,"packages":{}}')
     monkeypatch.setattr(builder, 'ROOT', root)
     monkeypatch.setattr(builder, 'FRONTEND', frontend)
     monkeypatch.setattr(builder, 'OUTPUT', output)

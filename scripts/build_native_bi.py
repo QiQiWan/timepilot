@@ -42,15 +42,15 @@ def main() -> int:
         except (OSError, ValueError, subprocess.TimeoutExpired):
             return False
 
+    if not lock.is_file():
+        print('ERROR: Native Perspective build requires committed package-lock.json; no runtime dependency resolution is permitted.',file=sys.stderr)
+        return 2
     if not node_modules_current():
         if os.environ.get('TIMEPILOT_SKIP_NPM_INSTALL') == '1':
             print('ERROR: Frontend node_modules missing or mismatched, npm install disabled.',
                   file=sys.stderr)
             return 2
-        command = (['npm', 'ci', '--no-audit', '--no-fund'] if lock.is_file()
-                   else ['npm', 'install', '--no-audit', '--no-fund'])
-        if not lock.is_file():
-            print('[BI BUILD] First-run bootstrap will generate package-lock.json from pinned package.json; subsequent builds use npm ci.', flush=True)
+        command = ['npm', 'ci', '--no-audit', '--no-fund']
         print('Installing/verifying pinned Perspective frontend packages...', flush=True)
         try:
             subprocess.run(command, cwd=FRONTEND, check=True, timeout=600)

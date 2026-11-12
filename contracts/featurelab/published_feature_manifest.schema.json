@@ -1,0 +1,72 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "manifest_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Manifest Version",
+      "type": "integer"
+    },
+    "feature_set_id": {
+      "minLength": 1,
+      "title": "Feature Set Id",
+      "type": "string"
+    },
+    "set_revision": {
+      "minimum": 1,
+      "title": "Set Revision",
+      "type": "integer"
+    },
+    "source_sha256": {
+      "minLength": 32,
+      "title": "Source Sha256",
+      "type": "string"
+    },
+    "feature_spec_sha256": {
+      "minLength": 32,
+      "title": "Feature Spec Sha256",
+      "type": "string"
+    },
+    "artifact_sha256": {
+      "minLength": 32,
+      "title": "Artifact Sha256",
+      "type": "string"
+    },
+    "approved_by": {
+      "minLength": 1,
+      "title": "Approved By",
+      "type": "string"
+    },
+    "approved_at": {
+      "title": "Approved At",
+      "type": "string"
+    },
+    "feature_ids": {
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Feature Ids",
+      "type": "array"
+    },
+    "model_references": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Model References",
+      "type": "array"
+    }
+  },
+  "required": [
+    "feature_set_id",
+    "set_revision",
+    "source_sha256",
+    "feature_spec_sha256",
+    "artifact_sha256",
+    "approved_by",
+    "approved_at",
+    "feature_ids"
+  ],
+  "title": "PublishedFeatureManifest",
+  "type": "object"
+}

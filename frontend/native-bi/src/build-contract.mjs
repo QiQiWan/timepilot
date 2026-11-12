@@ -11,6 +11,7 @@ export const PUBLIC_EXPORTS = Object.freeze([
   'mountPerspectiveRemote',
   'getActiveTableName',
   'setPerspectivePreset',
+  'configurePerspectiveDashboard',
   'savePerspectiveState',
   'restorePerspectiveState',
   'disposePerspective',

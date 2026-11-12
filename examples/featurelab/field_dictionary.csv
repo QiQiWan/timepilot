@@ -1,0 +1,7 @@
+source_name,display_name,semantic_type,role,unit,timezone,confirmation
+sample_id,样本编号,id,record_id,,,confirmed
+device_id,设备编号,id,entity_key,,,confirmed
+event_time,采集时间,datetime,event_time,,Asia/Shanghai,confirmed
+available_at,业务可用时间,datetime,available_at,,Asia/Shanghai,confirmed
+negative_pressure_kpa,负压,numeric,value,kPa,,confirmed
+air_pressure_kpa,气压,numeric,value,kPa,,confirmed

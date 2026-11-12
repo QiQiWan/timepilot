@@ -1,0 +1,4 @@
+# Optional v0.30 algorithms; install in the EXISTING Python 3.12.12 environment.
+# Never needed to run the base FeatureLab.
+tsfresh>=0.21,<0.22
+featuretools>=1.31,<2

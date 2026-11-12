@@ -212,5 +212,6 @@ def test_old_schema_migrates_without_losing_legacy_links(tmp_path):
         con.execute('UPDATE project_schema SET version=1')
     migrated=create_app(home=tmp_path,embedded_worker=False)
     with sqlite3.connect(db) as con:
-        assert con.execute('SELECT version FROM project_schema').fetchone()[0]==4
+        from timepilot.project_migrations import TARGET_SCHEMA
+        assert con.execute('SELECT version FROM project_schema').fetchone()[0] == TARGET_SCHEMA
     assert migrated.state.projects.list()==app.state.projects.list()

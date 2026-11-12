@@ -530,6 +530,9 @@ class EnterpriseGuard:
                 m=re.match(r'^/api/v1/projects/([0-9a-fA-F-]{36})(?:/|$)',path)
                 if m:
                     required='viewer' if method in {'GET','HEAD'} or (method=='POST' and (path.endswith('/industrial/preview') or path.endswith('/industrial/arrow') or path.endswith('/selections/preview') or path.endswith('/preflight'))) else 'editor'
+                    if method=='POST' and '/bi-agent/' in path and not re.search(
+                        r'/(freeze|model-drafts)$',path):
+                        required='analyst'
                     if re.search(r'/(archive|restore)$',path) or (method=='DELETE' and re.fullmatch(r'/api/v1/projects/[^/]+',path)):
                         required='project_admin'
                     self.security.allowed_project(principal,m.group(1),required=required)

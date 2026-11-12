@@ -1,0 +1,17 @@
+.tp-bi-fab-shell{position:fixed;right:24px;bottom:24px;z-index:52;pointer-events:none}
+.tp-bi-fab-shell>*{pointer-events:auto}
+.tp-bi-fab-trigger{display:grid;place-items:center;width:56px;height:56px;border:0;border-radius:50%;color:white;background:linear-gradient(150deg,#274f8c,#165cb9);font-size:28px;box-shadow:0 12px 30px #15345b55;cursor:pointer}
+.tp-fab-dialog{position:absolute;bottom:70px;right:0;width:480px;height:min(670px,calc(100dvh - 90px));min-width:320px;min-height:280px;max-width:min(820px,calc(100vw - 28px));max-height:calc(100dvh - 90px);display:flex;flex-direction:column;border:1px solid #d7e2ee;border-radius:15px;box-shadow:0 24px 55px #152b4955;background:#fff;overflow:hidden;resize:both}
+.tp-fab-dialog[hidden]{display:none}
+.tp-fab-head{background:#142e4c;color:white;display:flex;align-items:center;justify-content:space-between;padding:12px 16px;gap:8px;cursor:move;touch-action:none;flex:none}
+.tp-fab-head span{display:flex;flex-direction:column;gap:2px}.tp-fab-head b{font-size:15px}.tp-fab-head small{font-size:11px;color:#c7d9eb}
+.tp-fab-close{background:transparent;border:0;color:#fff;cursor:pointer;font-size:24px;width:34px;height:34px;display:grid;place-items:center;border-radius:6px}.tp-fab-close:hover{background:#ffffff22}
+.tp-fab-content{flex:1;overflow:auto;overscroll-behavior:contain;min-height:0;padding:13px}
+.tp-fab-content .tp-bi-agent-layout{grid-template-columns:minmax(0,1fr);gap:10px;margin-top:8px}
+.tp-fab-content .tp-bi-agent-side{border-left:0;border-top:1px solid #e5ebf3;padding:0}
+.tp-fab-content .tp-bi-agent-messages{height:auto;min-height:135px;max-height:clamp(150px,34dvh,340px)}
+.tp-fab-content .tp-bi-agent-form{position:sticky;bottom:0;background:#fff;padding:8px 0;z-index:1}
+.tp-fab-content .tp-bi-agent-form textarea{min-height:65px}.tp-fab-content .bi-card-title{align-items:start}
+.tp-fab-content .tp-bi-agent-buttons .button{white-space:normal}.tp-fab-resize-hint{position:absolute;bottom:1px;right:1px;width:13px;height:13px;pointer-events:none;background:linear-gradient(135deg,transparent 45%,#8ba8c4 46%,#8ba8c4 54%,transparent 55%);opacity:.8}
+body[data-workspace-mode="native-bi"] .floating-task:not(.is-hidden){right:96px;bottom:20px}
+@media(max-width:760px){.tp-bi-fab-shell{right:14px;bottom:16px}.tp-fab-dialog{position:fixed!important;left:8px!important;right:8px!important;bottom:82px!important;top:auto!important;width:auto!important;height:min(73dvh,740px)!important;resize:none;min-width:0}.tp-bi-fab-trigger{width:52px;height:52px}.tp-fab-resize-hint{display:none}}

@@ -4,18 +4,19 @@
   'use strict';
   const H = x => String(x ?? '').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const U = encodeURIComponent;
+  const dialog=()=>window.TimePilotBIDialogs;
   const post = x => ({method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(x)});
   const nice = n => Number(n||0).toLocaleString('zh-CN');
   let ctx, current=null, info=null, assets=[], legacy=[], streams=[];
   let selectedVersion='base', latestVersion='base', lastResult=null, lastQuery=null;
   let mod=null, visualSource=null, editor=[], preview=null, previewBatch=null;
-  let chartRequest=0;
+  let chartRequest=0,agentWorkspace=null,snapshotSaveTask=null,lastSnapshotToken=null;
   // Explicit browser API contract: an application-mode Vite build can emit
   // valid JS/CSS/WASM while stripping exported entry functions.
   const PERSPECTIVE_API=[
     'mountPerspective','mountPerspectiveRemote','getActiveTableName',
-    'setPerspectivePreset','savePerspectiveState','restorePerspectiveState',
-    'disposePerspective'
+    'setPerspectivePreset','configurePerspectiveDashboard','savePerspectiveState','restorePerspectiveState',
+    'disposePerspective','applyAgentWorkspaceState','inspectPerspectiveCapabilities','setPerspectiveChangeListener','getPerspectiveSelectedSeries'
   ];
   const description='原生网格、透视、交互图表与版本化数据编辑。原始 Parquet 永久保留。';
   const alert = text => `<div class="helper warning">${H(text)}</div>`;
@@ -192,6 +193,7 @@
       <button class="button" data-native="save-view" ${has?'':'disabled'}>保存视图</button></div>
       <p class="tp-native-note" id="tp-native-viz-hint">${H(footnote)}</p>
       <div class="tp-native-perspective" id="tp-native-perspective">${has?'<p class="muted">准备原生分析组件…</p>':alert('Perspective 构建不完整：'+(info?.perspective_bundle?.problems||[]).join('；')+'。需要完整 JS/CSS/WASM 离线资源。')}</div></div>
+
       ${ctx.projectId?'<div class="panel" id="tp-native-industrial"><p class="muted">准备工业分析模板…</p></div>':''}
       <details class="panel tp-native-advanced" id="native-advanced"><summary>高级操作：字段类型与版本编辑</summary><div class="tp-native-advanced-body"><div class="panel" id="native-types"><div class="bi-card-title"><h2>字段类型与分析语义</h2><span class="subtle-tag">生成新 Parquet 资产 · 原始数据不变</span></div>
         <p>销量、金额和日期等字段可明确指定类型；物料编码和带前导零的编号建议保留文本。转换前执行全量校验，不兼容值会阻断保存。</p>
@@ -213,6 +215,7 @@
       <details class="panel tp-native-advanced" id="native-assistant"><summary>高级操作：AI 查询建议</summary><div class="tp-native-advanced-body"><div class="panel"><h2>AI 查询建议</h2><p>大模型只接收字段和类型，返回受约束的查询草稿。用户确认后才执行。</p><form id="tp-native-ai" class="form"><div class="field"><label>分析需求</label><textarea name="request" rows="2" required placeholder="例如：按区域计算销量总和，并从高到低排序"></textarea></div><button class="button" type="submit">生成分析计划</button></form><div id="tp-native-ai-result"></div></div></div></details>`;
     // Mark loading as soon as the page exists, before any independent API
     // requests. The browser acceptance waits for this explicit state.
+    if(ctx.projectId)window.TimePilotBIWorkspaceLayout?.mount(ctx.root);
     const visualization=document.getElementById('tp-native-perspective');
     if(visualization && has)setPerspectiveState(visualization,'loading');
     else if(visualization)setPerspectiveState(visualization,'error','Perspective 离线资源缺失');
@@ -230,6 +233,9 @@
       try{await restoreVisualSource(source,selectedVersion);
         if(oldWorkspace&&mod)await mod.restorePerspectiveState(oldWorkspace,oldRoot||'timepilot_active');}
       catch(err){ctx.toast('切换数据版本后加载图表失败：'+err.message)}
+      // Rebind the Agent only AFTER Perspective is attached to the selected
+      // immutable version, otherwise its listener is attached to a disposed viewer.
+      if(ctx.projectId)await window.TimePilotBIConversations?.mount(ctx,current,selectedVersion);
     });
     await runQuery({asset_id:current.asset_id,version_id:selectedVersion,limit:50,include_row_ids:true});
     if(!ctx.route.includes('/view/')){
@@ -243,6 +249,7 @@
         await showBasicFallback(reason);
       }
     }
+    if(ctx.projectId)await window.TimePilotBIConversations?.mount(ctx,current,selectedVersion);
   }
   async function streamDetail(id){
     const data=await ctx.req('/native-bi/streams/'+U(id));
@@ -276,7 +283,11 @@
     slot.dataset.perspectiveState=state;
     slot.dataset.perspectiveError=state==='error'?String(error).slice(0,600):'';
   }
-  async function releaseWidget(){chartRequest++;if(mod){try{await mod.disposePerspective()}catch{} }mod=null;visualSource=null;}
+  async function releaseWidget(){
+    chartRequest++;
+    if(mod){try{mod.setPerspectiveChangeListener?.(null);await mod.disposePerspective()}catch{}}
+    mod=null;visualSource=null;agentWorkspace=null;snapshotSaveTask=null;lastSnapshotToken=null;
+  }
   async function ensurePerspectiveModule(){
     if(mod)return mod;
     // The manifest contains the actual bundled module digest, so a rebuild
@@ -415,6 +426,8 @@
     return spec;
   }
   async function render(passed){
+    window.TimePilotBIConversations?.reset();
+    window.TimePilotBIWorkspaceLayout?.mode(!!passed.projectId && passed.route?.includes('/bi/native/'));
     ctx=passed;ctx.activeViewId=null;current=null;editor=[];preview=null;lastResult=null;lastQuery=null;selectedVersion='base';latestVersion='base';
     await releaseWidget();
     ctx.root.innerHTML='<div class="panel"><p class="muted">正在连接数据分析引擎…</p></div>';
@@ -477,7 +490,7 @@
         const result=await ctx.req(location+'/preview',post(selectionPayload));
         const note=visualSource?.kind==='query' ? '复用服务端明细筛选；忽略图表分组、聚合和分页。'
                    : '当前使用完整源数据；图表内部过滤和显示的样本行不会限制训练数据。';
-        if(!confirm(`确认使用 ${nice(result.row_count)} 条记录建立模型？\n${note}\n源版本 ${selectedVersion}`))return true;
+        if(!await dialog().confirm('确认建模数据范围',`源版本 ${selectedVersion}，实际选择 ${nice(result.row_count)} 条记录。\n${note}`, {confirmText:'冻结并进入建模'}))return true;
         const frozen=await ctx.req(location,post({...selectionPayload,confirm:true}));
         await window.TimePilotModeling.open({ctx,projectId:ctx.projectId,assetId:current.asset_id,
              versionId:selectedVersion,viewId:ctx.activeViewId||null,filters,selectionId:frozen.selection_id});
@@ -503,7 +516,7 @@
       }
       else if(type==='industrial-save'){
         if(!ctx.projectId)throw new Error('保存工业分析需要项目上下文');
-        const name=prompt('工业视图名称','设备工况及维护事件');if(!name?.trim())return true;
+        const name=await dialog().text('保存工业分析视图','设备工况及维护事件','会保存事件字段、聚合设置与数据版本。');if(!name)return true;
         await ctx.req('/projects/'+U(ctx.projectId)+'/industrial/views',post({name:name.trim(),spec:industrialSpec()}));
         ctx.toast('已保存工业分析数据版本与字段映射');await loadIndustrialForm();
       }
@@ -524,7 +537,7 @@
       else if(type==='save-view'){
         if(!mod||!visualSource)throw new Error('请先打开网格或可视化查询');
         if(visualSource.kind==='industrial')throw new Error('工业视图请使用“保存工业分析模板”，会保留事件字段和冻结版本');
-        const name=prompt('给当前视图命名');if(!name)return true;
+        const name=await dialog().text('保存当前 Perspective 视图','我的分析视图','保存面板布局、图表类型、选中系列和数据来源版本。');if(!name)return true;
         const workspace=await mod.savePerspectiveState();
         const base_table_name=await mod.getActiveTableName();
         await ctx.req('/native-bi/views',post({asset_id:current.asset_id,name,config:{format:'timepilot-perspective-v2',workspace,source:visualSource,base_table_name}}));
@@ -552,7 +565,7 @@
       }
       else if(type==='commit-edit'){
         if(!preview||!previewBatch)throw new Error('请先预览本批数据');
-        if(!confirm('确认保存 '+preview.affected_cells+' 个修改到新的数据版本？'))return true;
+        if(!await dialog().confirm('确认保存数据修改',`涉及 ${preview.affected_cells} 个单元格，系统将创建一个新版本并保留原件。`,{confirmText:'保存新版本'}))return true;
         btn.disabled=true;
         const oldWorkspace=mod?await mod.savePerspectiveState().catch(()=>null):null;
         const oldRoot=oldWorkspace?await mod.getActiveTableName().catch(()=>null):null;
@@ -565,7 +578,7 @@
         await refreshCurrent({workspace:oldWorkspace,root:oldRoot,source:oldSource});
       }
       else if(type==='undo'){
-        if(!confirm('撤销当前版本的上一次操作？系统会保留全部历史记录。'))return true;
+        if(!await dialog().confirm('撤销上一步','恢复上一次数据版本指针，所有编辑历史继续保留。'))return true;
         const savedState={source:visualSource?structuredClone(visualSource):{kind:'virtual'},
           workspace:mod?await mod.savePerspectiveState().catch(()=>null):null};
         savedState.root=savedState.workspace?await mod.getActiveTableName().catch(()=>null):null;
@@ -574,7 +587,7 @@
         await refreshCurrent(savedState);ctx.toast('已撤销，原始数据保留');
       }
       else if(type==='rollback'){
-        if(!confirm('要恢复到版本 '+btn.dataset.version.slice(0,8)+' 吗？不会删除其他版本。'))return true;
+        if(!await dialog().confirm('恢复历史版本','目标版本：'+btn.dataset.version.slice(0,8)+'。其他版本不会被删除。'))return true;
         const savedState={source:visualSource?structuredClone(visualSource):{kind:'virtual'},
           workspace:mod?await mod.savePerspectiveState().catch(()=>null):null};
         savedState.root=savedState.workspace?await mod.getActiveTableName().catch(()=>null):null;
@@ -588,7 +601,7 @@
     }catch(e){ctx.toast('操作失败：'+e.message)}
     return true;
   }
-  function submit(event){
+  async function submit(event){
     const form=event.target;if(!form.id?.startsWith('tp-native-'))return false;
     event.preventDefault();
     if(form.id==='tp-native-stream-create'){
@@ -603,7 +616,7 @@
         .catch(e=>ctx.toast(e.message));
     }else if(form.id==='tp-native-derive-types'){
       const f=Object.fromEntries(new FormData(form));
-      if(!confirm('将对整个数据版本验证类型，并创建独立的新 Parquet 数据资产。确认继续？'))return true;
+      if(!await dialog().confirm('校验并发布字段类型','系统将校验整个数据版本并创建独立的 Parquet 资产，保留原始字段值。',{confirmText:'开始类型校验'}))return true;
       ctx.req('/native-bi/assets/'+U(current.asset_id)+'/derive-types',post({
         expected_version:selectedVersion,name:f.name||null,changes:{[f.column]:f.type}}))
         .then(r=>ctx.navigate('/bi/native/'+r.asset_id)).catch(e=>ctx.toast(e.message));
@@ -640,5 +653,136 @@
     }
     return true;
   }
-  window.TimePilotNativeBI={render,click,submit};
+  // A single Perspective workspace token shared by manual UI and Agent.
+  // Deduplicate overlapping manual layout events and Agent render receipts.
+  // The same live viewer supplies every persisted token. A pending save is
+  // awaited rather than ignored, avoiding false "rendered" success/failure.
+  let viewerSaveDirty=false;
+  async function persistViewerSnapshot(ws=agentWorkspace){
+    if(!ctx?.projectId||!ws||!mod||visualSource?.kind!=='virtual')return null;
+    if(snapshotSaveTask){viewerSaveDirty=true;await snapshotSaveTask;
+      if(!ctx?.projectId || agentWorkspace?.workspace_id!==ws.workspace_id)return null;
+      return persistViewerSnapshot(ws);
+    }
+    const currentWorkspace=ws.workspace_id;
+    const save=async()=>{
+      const token=await mod.savePerspectiveState();
+      const serial=JSON.stringify(token);
+      const base='/projects/'+U(ctx.projectId)+'/bi-agent/workspaces/'+U(currentWorkspace);
+      const existing=await ctx.req(base+'/snapshot');
+      if(serial===JSON.stringify(existing.token)){
+        lastSnapshotToken=serial;return existing;
+      }
+      const updated=await ctx.req(base+'/snapshot',{method:'PATCH',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({workspace_revision:ws.revision,viewer_revision:existing.viewer_revision,
+          request_id:'viewer-'+(globalThis.crypto?.randomUUID?.()||Date.now().toString(36)),token})});
+      lastSnapshotToken=serial;
+      window.TimePilotBIWorkspaceLayout?.status('Perspective 布局已同步 · 视图修订 '+updated.viewer_revision);
+      return updated;
+    };
+    snapshotSaveTask=save().finally(()=>{snapshotSaveTask=null;});
+    return snapshotSaveTask;
+  }
+  async function activateAgentWorkspace(ws){
+    agentWorkspace=ws;lastSnapshotToken=null;
+    if(!ctx?.projectId||!ws||!mod)return;
+    const base='/projects/'+U(ctx.projectId)+'/bi-agent/workspaces/'+U(ws.workspace_id);
+    const saved=await ctx.req(base+'/snapshot');
+    if(saved?.token&&visualSource?.kind==='virtual'){
+      try{
+        const root=Object.values(saved.token.panels||{})[0]?.table || 'timepilot_active';
+        await mod.restorePerspectiveState(saved.token,root);
+        lastSnapshotToken=JSON.stringify(saved.token);
+      }catch(e){window.TimePilotBIWorkspaceLayout?.status('旧布局需要手动重新保存：'+e.message);}
+    }
+    mod.setPerspectiveChangeListener?.(()=>persistViewerSnapshot(agentWorkspace));
+  }
+  async function acknowledgeAgentRender(receipt,workspace=agentWorkspace){
+    if(!ctx?.projectId||!workspace||!receipt?.workspace)return null;
+    agentWorkspace=workspace;
+    const saved=await persistViewerSnapshot(workspace);
+    if(!saved)throw new Error('Perspective 视图尚未连接，无法登记渲染回执');
+    if(saved.source_sha256!==workspace.source_sha256)throw new Error('Viewer 来源校验未通过');
+    const panel=receipt.receipt?.panel||Object.keys(receipt.workspace.panels||{})[0];
+    const plugin=receipt.receipt?.plugin||receipt.workspace.panels?.[panel]?.plugin;
+    const base='/projects/'+U(ctx.projectId)+'/bi-agent/workspaces/'+U(workspace.workspace_id);
+    const request_id='render-'+(globalThis.crypto?.randomUUID?.()||Date.now().toString(36));
+    await ctx.req(base+'/render-receipts',post({request_id,success:true,panel_id:panel,
+      plugin,viewer_revision:saved.viewer_revision,source_sha256:workspace.source_sha256}));
+    return {source_sha256:workspace.source_sha256,request_id,viewer_revision:saved.viewer_revision,
+      panel_id:panel,plugin};
+  }
+  async function renderAgentCorrelation(matrix){
+    if(!ctx?.projectId||!current||matrix.source_sha256!==current.sha256)
+      throw new Error('相关矩阵所属数据版本与当前资产不一致');
+    // A correlation result is an extra, managed analysis panel; never remove
+    // the primary Perspective viewer or replace its full remote table.
+    const slot=document.getElementById('tp-bi-extension-host');
+    if(!slot)throw new Error('找不到受管理的扩展分析面板');
+    slot.hidden=false;slot.replaceChildren();
+    const heading=document.createElement('h3');heading.textContent='相关性分析 · 来源于当前固定数据版本';
+    slot.append(heading);
+    const content=document.createElement('div');slot.append(content);
+    const receipt=window.TimePilotCorrelationHeatmap.render(content,matrix);
+    window.TimePilotBIWorkspaceLayout?.status('相关矩阵计算完成 · 主 Perspective 工作区保持不变');
+    return {...receipt,extension_panel:'tp-bi-extension-host',primary_viewer_preserved:true};
+  }
+  function renderComputedPreview(workspace,result){
+    const slot=document.getElementById('tp-bi-extension-host');
+    if(!slot)throw new Error('计算预览面板不可用');
+    slot.hidden=false;slot.replaceChildren();
+    const title=document.createElement('h3');title.textContent='派生列 · 真实数据预览';slot.append(title);
+    const note=document.createElement('p');note.className='muted small';
+    note.textContent='预览结果最多展示前 50 行；原始数据保持不变。用于模型前请在高级操作中申请审核并发布全量派生表。';
+    slot.append(note);
+    const fields=(result.columns||[]).slice(0,40),rows=(result.rows||[]).slice(0,50);
+    const outer=document.createElement('div');outer.className='table-wrap';
+    const grid=document.createElement('table');grid.className='data-table';
+    const tr=document.createElement('tr');for(const name of fields){const th=document.createElement('th');th.textContent=name;tr.append(th)}
+    const head=document.createElement('thead');head.append(tr);grid.append(head);
+    const body=document.createElement('tbody');for(const record of rows){
+      const row=document.createElement('tr');for(const key of fields){const cell=document.createElement('td');
+        cell.textContent=record[key]===null?'NULL':String(record[key]??'');row.append(cell)}body.append(row)}
+    grid.append(body);outer.append(grid);slot.append(outer);
+    window.TimePilotBIWorkspaceLayout?.status('派生列预览已生成 · 原始 Perspective Viewer 不变');
+    return {status:'extension_preview',primary_viewer_preserved:true,
+            rendered_rows:rows.length,extension_panel:'tp-bi-extension-host'};
+  }
+  async function renderAgentResult(workspace,result=null,actions=[],expectedToken=null){
+    if(!ctx?.projectId||!current||!workspace)return;
+    if(workspace.asset_id!==current.asset_id || workspace.version_id!==selectedVersion)
+      throw new Error('对话工作区所属资产或版本与页面不一致');
+    if(workspace.state.expressions?.length||workspace.state.window||workspace.state.windows?.length){
+      if(!result?.rows)throw new Error('后端没有返回真实计算结果，拒绝显示虚拟成功');
+      return renderComputedPreview(workspace,result);
+    }
+    if(workspace.state.correlation?.analysis_id){
+      const matrix=await ctx.req('/projects/'+U(ctx.projectId)+'/bi-agent/analyses/'+
+        U(workspace.state.correlation.analysis_id)+'/matrix');
+      return renderAgentCorrelation(matrix);
+    }
+    if(!mod || visualSource?.kind!=='virtual')
+      throw new Error('请先加载 Perspective 完整远程数据视图；当前预览不支持应用全量 Agent 图表');
+    const receipt=await mod.applyAgentWorkspaceState(workspace.state,{actions,expectedToken});
+    agentWorkspace=workspace;
+    window.TimePilotBIWorkspaceLayout?.status('原生图表已更新 · 数据保持完整 · '+receipt.panel_count+' 个面板');
+    return receipt;
+  }
+  async function saveAgentPerspective(){
+    const state=mod?await mod.savePerspectiveState().catch(()=>null):null;
+    return state;
+  }
+  async function restoreAgentPerspective(state){
+    if(state?.timepilot_heatmap?.analysis_id){
+      const matrix=await ctx.req('/projects/'+U(ctx.projectId)+'/bi-agent/analyses/'+
+        U(state.timepilot_heatmap.analysis_id)+'/matrix');
+      await renderAgentCorrelation(matrix);
+    }else if(state&&mod)await mod.restorePerspectiveState(state);
+  }
+  async function getSelectedSeries(){
+    if(!mod?.getPerspectiveSelectedSeries)return {fields:[],all:[]};
+    return mod.getPerspectiveSelectedSeries();
+  }
+  window.TimePilotNativeBI={render,click,submit,getSelectedSeries,renderAgentResult,renderAgentCorrelation,
+    saveAgentPerspective,restoreAgentPerspective,activateAgentWorkspace,acknowledgeAgentRender};
 })();

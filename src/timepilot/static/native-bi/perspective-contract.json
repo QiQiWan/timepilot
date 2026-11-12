@@ -1,0 +1,14 @@
+{
+  "format": 1,
+  "entry": "perspective-entry.js",
+  "exports": [
+    "mountPerspective",
+    "mountPerspectiveRemote",
+    "getActiveTableName",
+    "setPerspectivePreset",
+    "configurePerspectiveDashboard",
+    "savePerspectiveState",
+    "restorePerspectiveState",
+    "disposePerspective"
+  ]
+}

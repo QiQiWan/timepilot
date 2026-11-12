@@ -1,0 +1,289 @@
+{
+  "$defs": {
+    "FeatureDefinition": {
+      "additionalProperties": false,
+      "properties": {
+        "feature_id": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Feature Id",
+          "type": "string"
+        },
+        "output_name": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Output Name",
+          "type": "string"
+        },
+        "display_name": {
+          "anyOf": [
+            {
+              "maxLength": 160,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Display Name"
+        },
+        "operator_id": {
+          "maxLength": 80,
+          "minLength": 3,
+          "title": "Operator Id",
+          "type": "string"
+        },
+        "operator_version": {
+          "default": "2.0",
+          "maxLength": 20,
+          "title": "Operator Version",
+          "type": "string"
+        },
+        "input_field_ids": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 8,
+          "minItems": 1,
+          "title": "Input Field Ids",
+          "type": "array"
+        },
+        "parameters": {
+          "additionalProperties": true,
+          "title": "Parameters",
+          "type": "object"
+        }
+      },
+      "required": [
+        "feature_id",
+        "output_name",
+        "operator_id",
+        "input_field_ids"
+      ],
+      "title": "FeatureDefinition",
+      "type": "object"
+    },
+    "SourceRef": {
+      "additionalProperties": false,
+      "properties": {
+        "asset_id": {
+          "minLength": 1,
+          "title": "Asset Id",
+          "type": "string"
+        },
+        "version_id": {
+          "minLength": 1,
+          "title": "Version Id",
+          "type": "string"
+        },
+        "source_sha256": {
+          "maxLength": 128,
+          "minLength": 32,
+          "title": "Source Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "asset_id",
+        "version_id",
+        "source_sha256"
+      ],
+      "title": "SourceRef",
+      "type": "object"
+    },
+    "TaskSpecV2": {
+      "additionalProperties": false,
+      "properties": {
+        "task_spec_version": {
+          "const": 1,
+          "default": 1,
+          "title": "Task Spec Version",
+          "type": "integer"
+        },
+        "task_id": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Task Id",
+          "type": "string"
+        },
+        "mode": {
+          "default": "exploration",
+          "enum": [
+            "exploration",
+            "supervised"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "task_type": {
+          "default": "profile",
+          "enum": [
+            "profile",
+            "regression",
+            "binary_classification"
+          ],
+          "title": "Task Type",
+          "type": "string"
+        },
+        "entity_field_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Entity Field Ids",
+          "type": "array"
+        },
+        "prediction_time_field_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Prediction Time Field Id"
+        },
+        "label_field_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Label Field Id"
+        },
+        "label_time_field_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Label Time Field Id"
+        },
+        "label_available_at_field_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Label Available At Field Id"
+        },
+        "split_kind": {
+          "default": "time",
+          "enum": [
+            "time",
+            "grouped_time"
+          ],
+          "title": "Split Kind",
+          "type": "string"
+        },
+        "group_field_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Group Field Ids",
+          "type": "array"
+        },
+        "n_splits": {
+          "default": 3,
+          "maximum": 10,
+          "minimum": 2,
+          "title": "N Splits",
+          "type": "integer"
+        },
+        "purge_rows": {
+          "default": 0,
+          "maximum": 100000,
+          "minimum": 0,
+          "title": "Purge Rows",
+          "type": "integer"
+        },
+        "metrics": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Metrics",
+          "type": "array"
+        }
+      },
+      "required": [
+        "task_id"
+      ],
+      "title": "TaskSpecV2",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": 2,
+      "default": 2,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "name": {
+      "maxLength": 120,
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+    },
+    "source": {
+      "$ref": "#/$defs/SourceRef"
+    },
+    "contract_revision": {
+      "minimum": 0,
+      "title": "Contract Revision",
+      "type": "integer"
+    },
+    "task": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/TaskSpecV2"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "features": {
+      "items": {
+        "$ref": "#/$defs/FeatureDefinition"
+      },
+      "maxItems": 100,
+      "minItems": 1,
+      "title": "Features",
+      "type": "array"
+    },
+    "selection_policy": {
+      "default": "full",
+      "enum": [
+        "full",
+        "preview_only"
+      ],
+      "title": "Selection Policy",
+      "type": "string"
+    }
+  },
+  "required": [
+    "name",
+    "source",
+    "contract_revision",
+    "features"
+  ],
+  "title": "FeatureSpecV2",
+  "type": "object"
+}

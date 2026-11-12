@@ -15,6 +15,7 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from timepilot import __version__
 from timepilot.contracts import TaskSpec
 from timepilot.data import DataValidationError, create_dataset, get_dataset
 from timepilot.demo import bootstrap
@@ -55,6 +56,12 @@ class RunCreate(BaseModel):
 
 
 def create_app(*, home: str | Path | None = None, embedded_worker: bool = True):
+    # Direct `python -m timepilot serve` must check a catalog before the
+    # separate SQLAlchemy metadata DB or business services are initialized.
+    from timepilot.config import Settings
+    from timepilot.project_migrations import require_supported_catalog
+    settings = Settings.from_env(home)
+    require_supported_catalog(settings.home / 'projects' / 'catalog.sqlite3')
     client = TimePilot(home=home)
     enterprise = os.getenv('TIMEPILOT_ENTERPRISE_MODE','0') == '1'
     if not client.settings.local_mode and not enterprise:
@@ -102,6 +109,13 @@ def create_app(*, home: str | Path | None = None, embedded_worker: bool = True):
     from timepilot.data_platform import DataPlatform
     generic_assets = GenericAssetStore(smart_import)
     data_platform = DataPlatform(projects,native,generic_assets)
+    from timepilot.bi_agent_service import BIWorkspaceService
+    from timepilot.bi_agent_api import create_bi_agent_router
+    bi_agent = BIWorkspaceService(projects,native,data_platform,modeling=modeling,models=models)
+    from timepilot.derived_assets import DerivedAssetService
+    from timepilot.derived_assets_api import create_derived_router
+    derived = DerivedAssetService(bi_agent)
+    modeling.derived = derived
     agent_executor = DurableExecutor(client.settings.home / 'agent_workflows',
         default_registry(), ToolServices(understanding, data_assets, workbench, bi, client.settings,
                                   benchmark=semantic_benchmark, experiments=auto_experiments,
@@ -113,6 +127,7 @@ def create_app(*, home: str | Path | None = None, embedded_worker: bool = True):
     agent_thread = None
     import_thread = None
     publication_thread = None
+    feature_thread = None
 
     def _worker_loop():
         # SQLite mode must run a single worker; process-level multi-host exclusion is not provided in v0.1.
@@ -137,6 +152,22 @@ def create_app(*, home: str | Path | None = None, embedded_worker: bool = True):
             if not result:
                 stop.wait(0.5)
 
+    from timepilot.feature_semantics import FeatureSemanticService
+    from timepilot.feature_registry import FeatureRegistry
+    from timepilot.feature_execution import FeatureJobEngine
+    semantic_features=FeatureSemanticService(projects,native)
+    feature_registry=FeatureRegistry(projects,native,semantic_features)
+    feature_jobs=FeatureJobEngine(projects,native,semantic_features,feature_registry)
+
+    def _feature_loop():
+        import logging
+        while not stop.is_set():
+            try:worked=feature_jobs.work_once()
+            except Exception:
+                logging.getLogger(__name__).exception('FeatureLab background job failed')
+                worked=False
+            if not worked:stop.wait(1.0)
+
     def _publication_loop():
         import logging
         while not stop.is_set():
@@ -148,7 +179,7 @@ def create_app(*, home: str | Path | None = None, embedded_worker: bool = True):
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        nonlocal worker_thread, agent_thread, import_thread, publication_thread
+        nonlocal worker_thread, agent_thread, import_thread, publication_thread,feature_thread
         if embedded_worker:
             worker_thread = threading.Thread(target=_worker_loop, name="timepilot-local-worker", daemon=True)
             worker_thread.start()
@@ -161,6 +192,8 @@ def create_app(*, home: str | Path | None = None, embedded_worker: bool = True):
             import_thread.start()
             publication_thread=threading.Thread(target=_publication_loop,name='timepilot-project-publication',daemon=True)
             publication_thread.start()
+            feature_thread=threading.Thread(target=_feature_loop,name='timepilot-featurelab-worker',daemon=True)
+            feature_thread.start()
         yield
         stop.set()
         if worker_thread:
@@ -171,8 +204,10 @@ def create_app(*, home: str | Path | None = None, embedded_worker: bool = True):
             import_thread.join(timeout=5)
         if publication_thread:
             publication_thread.join(timeout=5)
+        if feature_thread:
+            feature_thread.join(timeout=5)
 
-    app = FastAPI(title="TimePilot API", version="0.22.1", lifespan=lifespan,
+    app = FastAPI(title="TimePilot API", version=__version__, lifespan=lifespan,
                   description="Local-first and opt-in tenant-scoped enterprise services.")
     app.state.security = security
     app.state.client = client
@@ -192,8 +227,18 @@ def create_app(*, home: str | Path | None = None, embedded_worker: bool = True):
     app.state.project_publication_jobs = publication_jobs
     app.state.generic_assets = generic_assets
     app.state.modeling = modeling
+    app.state.bi_agent = bi_agent
+    app.state.derived = derived
+    app.state.feature_semantic = semantic_features
+    app.state.feature_registry = feature_registry
+    app.state.feature_jobs = feature_jobs
     app.include_router(create_projects_router(projects, understanding, native, import_jobs, publication_jobs))
     app.include_router(create_modeling_router(modeling))
+    app.include_router(create_bi_agent_router(bi_agent))
+    app.include_router(create_derived_router(derived,modeling,data_platform))
+    from timepilot.feature_lab_api import create_feature_lab_router
+    app.include_router(create_feature_lab_router(projects,native,semantic=semantic_features,
+        registry=feature_registry,jobs=feature_jobs,models=models))
     app.include_router(create_bi_router(bi, models, client))
     app.include_router(create_native_bi_router(native, bi, client.settings, models, data_assets=data_assets))
     app.include_router(create_smart_import_router(smart_import, native))
@@ -210,7 +255,7 @@ def create_app(*, home: str | Path | None = None, embedded_worker: bool = True):
 
     @app.get("/api/v1/health")
     def health():
-        return {"status": "ok", "version": "0.22.1", "ui_version": "0.22.1", "mode": "enterprise" if security else "local", "embedded_worker": embedded_worker}
+        return {"status": "ok", "version": __version__, "ui_version": __version__, "mode": "enterprise" if security else "local", "embedded_worker": embedded_worker}
 
     @app.get('/api/v1/ready')
     def ready():
@@ -231,7 +276,7 @@ def create_app(*, home: str | Path | None = None, embedded_worker: bool = True):
                 'ready': False, 'component': 'perspective_bundle',
                 'problems': status['problems'] + ([] if source_current else ['构建来源版本与当前源码不一致']) + missing,
                 'repair': '检查现有 Python 环境的 DuckDB/Perspective，并使用 bash TIMEPILOT.sh build 校验已编译 JS/WASM'})
-        return {'ready':True,'version':'0.22.1','perspective_bundle':status['version'],
+        return {'ready':True,'version':__version__,'perspective_bundle':status['version'],
                 'source_current':True}
 
     @app.get("/api/v1/templates/standard-timeseries.csv")
@@ -266,7 +311,7 @@ def create_app(*, home: str | Path | None = None, embedded_worker: bool = True):
         response = await call_next(request)
         if request.url.path.startswith("/projects") or request.url.path in {"/", "/overview", "/new", "/datasets", "/imports", "/runs", "/agent", "/plugins", "/help", "/bi", "/settings"} or request.url.path.startswith(("/assets/", "/imports/", "/agent/", "/bi/", "/runs/", "/settings/")):
             response.headers["Cache-Control"] = "no-store, max-age=0"
-            response.headers["X-TimePilot-UI-Version"] = "0.22.1"
+            response.headers["X-TimePilot-UI-Version"] = __version__
         return response
 
     @app.get("/api/v1/plugins")

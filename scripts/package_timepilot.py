@@ -36,7 +36,7 @@ def main() -> int:
         status = bundle_status(bundle)
         lock = ROOT / 'frontend/native-bi/package-lock.json'
         if not lock.is_file():
-            raise ValueError('离线运行包缺少 npm 依赖锁文件；先在发布机器执行 npm install --package-lock-only')
+            raise ValueError('离线运行包缺少 npm 依赖锁文件；先在联网构建机器生成并审核 package-lock.json，使用 npm ci 构建')
         if not status['ready'] or not frontend_matches_bundle(bundle, ROOT / 'frontend/native-bi'):
             raise ValueError('离线 JS/WASM 未通过完整性与源码匹配检查：' + '; '.join(status['problems'][:5]))
         native_files = {p.relative_to(ROOT).as_posix(): {

@@ -1,0 +1,26 @@
+{
+  "perspective_version": "5.6.1",
+  "files": {
+    "assets/perspective-server-B8sj_i73.wasm": {
+      "sha256": "e7dccb76417961ee13f6050f0635cdb3626c4f993dbdf13c95bf2714c15bf9a4",
+      "bytes": 2624623
+    },
+    "assets/perspective-viewer-DJE5Ocjz.wasm": {
+      "sha256": "55bb66b7c462bdd46166aea56408a523ad3fbbfaaa028e4b66d695628ec9fa55",
+      "bytes": 1650875
+    },
+    "perspective-contract.json": {
+      "sha256": "3eb7c4b9888b94680dcf14ead4ac5757a7a20009092eeee4833a967e264cb5c3",
+      "bytes": 302
+    },
+    "perspective-entry.css": {
+      "sha256": "05ef9e8cc875499fb9fd2625591e57d08547c9d1f69d166212e1f5f7ab61d5a4",
+      "bytes": 147552
+    },
+    "perspective-entry.js": {
+      "sha256": "beebad8fcf47d3b11e6e471e9034e1ca3f7ca851be3c9b10da7592984de9212d",
+      "bytes": 572918
+    }
+  },
+  "frontend_source_sha256": "234cb587e6e3afaff1c9dc4fb83a7876a47375592fabdc97aff571585917836f"
+}

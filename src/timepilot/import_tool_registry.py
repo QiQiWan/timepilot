@@ -16,6 +16,7 @@ TOOLS={
  'import.layout.scan':{'description':'有真实位置证据的表区域','args':['import_id']},
  'import.region.preview':{'description':'仅对用户开放的区域做有界预览','args':['import_id','region_id']},
  'import.header.compare':{'description':'读取候选表头及来源单元格','args':['import_id','region_id']},
+ 'import.region.stats':{'description':'源区域完整行集统计与缺失率','args':['import_id','region_id']},
  'import.schema.profile':{'description':'原始字段、物理类型和统计范围','args':['import_id','region_id']},
  'import.table.relations':{'description':'只生成表间关联候选，不执行合并','args':['import_id']},
  'import.quality.scan':{'description':'扫描空白/重复表头等结构异常','args':['import_id']},
@@ -60,6 +61,9 @@ class ImportToolRegistry:
                     'source_region':candidate.get('bbox'),
                     'notes':candidate.get('annotations',[]),
                     'confidence':candidate.get('header_confidence')}
+        if tool=='import.region.stats':
+            from timepilot.import_summary import ImportSummaryService
+            return ImportSummaryService(self.catalog).summarize_region(project_id,iid,rid)
         if tool=='import.schema.profile':
             profile=self.generic.inspect(iid,rid,max_sample=120)
             return {'region_id':rid,'source_sha256':profile['source_sha256'],

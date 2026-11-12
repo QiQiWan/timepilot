@@ -19,8 +19,8 @@ def test_store_blocks_existing_table_with_missing_columns(tmp_path: Path):
     # Guard must preserve existing records/tables and report missing fields.
     engine = create_engine(url)
     with engine.connect() as conn:
-        count = conn.execute(text("SELECT count(*) FROM sqlite_master WHERE name='datasets' AND type='table'"))
-        assert count.scalar_one() == 1
+        found = {row[0] for row in conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'"))}
+        assert found == {'datasets'}  # No unrelated TimePilot tables created before failure.
     engine.dispose()
 
 
@@ -31,3 +31,20 @@ def test_store_accepts_complete_fresh_schema(tmp_path: Path):
         assert store.engine is not None
     finally:
         store.engine.dispose()
+
+
+def test_store_rejects_unrelated_metadata_without_modification(tmp_path: Path):
+    url = f'sqlite:///{tmp_path / "unknown.sqlite3"}'
+    engine = create_engine(url)
+    with engine.begin() as conn:
+        conn.execute(text('CREATE TABLE unrelated_business_data (id INTEGER PRIMARY KEY)'))
+        conn.execute(text('INSERT INTO unrelated_business_data VALUES (41)'))
+    engine.dispose()
+    with pytest.raises(RuntimeError, match='not a recognized TimePilot store'):
+        Store(url)
+    engine = create_engine(url)
+    with engine.connect() as conn:
+        names = {r[0] for r in conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'"))}
+        assert names == {'unrelated_business_data'}
+        assert conn.execute(text('SELECT id FROM unrelated_business_data')).scalar_one() == 41
+    engine.dispose()

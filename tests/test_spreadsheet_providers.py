@@ -1,5 +1,6 @@
 """Spreadsheet BI routes and curated LLM provider presets / protocols."""
 from __future__ import annotations
+from timepilot import __version__
 
 import json
 from pathlib import Path
@@ -123,6 +124,6 @@ def test_frontend_sheet_assets_and_subroutes(tmp_path, monkeypatch):
         for asset in ['bi-grid.js','bi-grid.css','settings-ui.js']:
             assert api.get('/assets/'+asset).status_code==200
         # Old analysis URL stays addressable, but its retired grid script is not loaded.
-        assert '/assets/project-bi-ui.js?v=0.22.1' in api.get('/bi/table/'+tid).text
+        assert f'/assets/project-bi-ui.js?v={__version__}' in api.get('/bi/table/'+tid).text
         assert '/assets/bi-grid.js?v=' not in api.get('/bi/table/'+tid).text
         assert api.get('/bi/table/'+tid+'/unexpected').status_code==404

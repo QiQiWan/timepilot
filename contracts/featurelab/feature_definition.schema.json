@@ -1,0 +1,64 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "feature_id": {
+      "maxLength": 100,
+      "minLength": 1,
+      "title": "Feature Id",
+      "type": "string"
+    },
+    "output_name": {
+      "maxLength": 64,
+      "minLength": 1,
+      "title": "Output Name",
+      "type": "string"
+    },
+    "display_name": {
+      "anyOf": [
+        {
+          "maxLength": 160,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Display Name"
+    },
+    "operator_id": {
+      "maxLength": 80,
+      "minLength": 3,
+      "title": "Operator Id",
+      "type": "string"
+    },
+    "operator_version": {
+      "default": "2.0",
+      "maxLength": 20,
+      "title": "Operator Version",
+      "type": "string"
+    },
+    "input_field_ids": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 8,
+      "minItems": 1,
+      "title": "Input Field Ids",
+      "type": "array"
+    },
+    "parameters": {
+      "additionalProperties": true,
+      "title": "Parameters",
+      "type": "object"
+    }
+  },
+  "required": [
+    "feature_id",
+    "output_name",
+    "operator_id",
+    "input_field_ids"
+  ],
+  "title": "FeatureDefinition",
+  "type": "object"
+}

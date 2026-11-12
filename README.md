@@ -1,6 +1,201 @@
-# 时骁 TimePilot v0.22.1
+## v0.31.0 Mac 安装修复（2026-11-12）
+
+若 `source-check` 报 `.env.example` / `.github/workflows/ci.yml` 哈希不一致，执行
+`bash TIMEPILOT.sh source-repair`，脚本先备份本地变更，再按发布清单恢复；
+然后在联网构建机（Node 24）运行 `bash TIMEPILOT.sh bi-setup --bootstrap-lock`
+完成 Perspective JS/WASM 构建。`db-check` 中的 `schema 30 -> 34` 是待迁移提示，
+正常启动时会先备份再升级，**不要删除原项目数据库**。
+详细说明见 `docs/MAC_SOURCE_AND_BI_REPAIR_V0310.md`。
+
+# TimePilot v0.31.0 — 特征评价与发布可靠性收束（源码版）
+
+本次涵盖 v0.30.1—v0.31.0：发布契约、CI 与离线构建门禁；tsfresh/Featuretools 的时序有效性、计算预算、超时与内存监控；高级候选经逐预测时点 PIT 核对物化、同产物哈希模型评价与 BI；项目级五步工作流和真实业务 Agent 复核工具。
+
+**重要限制：当前提供的是 SOURCE ONLY。** 未提供真实 JS/WASM 与审查后的 npm 锁文件，不能声称开箱即用的完整离线发行包；缺少企业产线数据、真实质量标签或业务人工审阅时，正式验收必须 `blocked`。在目标机执行 `bash TIMEPILOT.sh source-check` 和 `bash TIMEPILOT.sh accept feature-lab-v031` 进行源级测试；配置真实业务字段与数据后运行 `bash TIMEPILOT.sh accept feature-lab-v031 --mode configured` 进行全链路验收。详见 `docs/FEATURELAB_V031_RELEASE_AND_REVIEW.md`。
+
+---
+
+# TimePilot v0.30.0 — 高成本工业特征发现与同源 PIT 验收
+
+新增可选 tsfresh/Featuretools、多表按实例 PIT 聚合、受控 Agent 工具及高级发现工作台；所有高级结果是待审核候选，禁止自动发布。正式监督评估验收脚本在隔离项目内将同一外部 CSV 贯通至 Parquet 物化、特征选择、模型对照、设备/工况切片和 BI DuckDB 视图。
+
+启动：`bash TIMEPILOT.sh source-check`；源码回归：`bash TIMEPILOT.sh accept feature-lab-v030`；选择安装 `python -m pip install -r requirements-featurelab-advanced.txt`；实际数据验收：`bash TIMEPILOT.sh accept feature-lab-v030 --mode configured`（需配置 `TIMEPILOT_FEATURELAB_QA_*` 来源与 9 个字段映射）。完整参数、运行与审阅结果见 `docs/FEATURELAB_V030_RELEASE_AND_REVIEW.md`。
+
+**验收边界**：本轮没有可核验的真实产线测量/质量数据；容器缺 DuckDB/Arrow、两项可选包与 Perspective 打包资源，因此真实端到端/Perspective 浏览器回执在部署机继续验收。独立测试的生成数据不计为真实产线证据。
+
+---
+
+# TimePilot v0.29.0 — 训练折特征筛选、模型贡献对照与稳定性评价
+
+新增三组模型对照（原始 / 全派生 / 训练折筛选）、线性与随机森林基线、时间前推评估、设备/工况切片、PSI 漂移和默认关闭的预算受控自动公式搜索；可以审阅特征并生成独立未批准草稿，数据库 schema 31→32 加性迁移。
+
+启动和验收：`bash TIMEPILOT.sh source-check`、`bash TIMEPILOT.sh accept feature-lab-v029`。真实文件验收需人工核实时间、标签可用时间和预计算派生列，通过 `TIMEPILOT_FEATURELAB_QA_CSV` 等变量设置；详情见 `docs/FEATURELAB_V029_RELEASE_AND_REVIEW.md`。
+
+**验收边界：**本轮没有真实来源可确认的产线 CSV；当前环境缺失 DuckDB/Arrow/Perspective 原生运行条件。已完成源码/模拟数据数值与浏览器组件检查，真实产线 PIT/BI 端到端验证待具备数据和依赖的目标环境执行。
+
+---
+
+# TimePilot v0.28.0 — 高级特征构造、自定义公式与可视化分析
+
+在 v0.27.0 半自动候选工作台基础上，增加以下功能（需在目标环境完成 DuckDB / Arrow / Perspective 真实全链路验收）：
+
+- **高级算子**：滚动求和、中位数、90% 分位数、极差、变异系数、标准化偏差；相对变化率、数值绝对值、平方根和 `log1p`；保留按实体/时间契约计算的限制。
+- **自定义公式**：通过可视化输入字段 `x0…x7` 和白名单函数构造特征；后端验证字段、单位和表达式 AST，编译安全 DuckDB SQL。不可调用任意 SQL / Python。
+- **多种可视化**：趋势、分布直方图、原始值—派生值散点图；图表标明样本范围，质量统计标明实际扫描范围。
+- **版本与工作流**：推荐 → 后台预览 → 选择 → FeatureSet 草稿 → Parquet 物化 → 最新产物查询 → BI；保留来源哈希、契约修订、生成算法版本和工作会话。
+- **验收命令**：`bash TIMEPILOT.sh accept feature-lab-v028` 运行源码/单元/Node 检查；真正测量文件运行 `TIMEPILOT_FEATURELAB_QA_CSV=/absolute/path/data.csv bash TIMEPILOT.sh accept feature-lab-v028 --mode configured`。也可单独运行 `python scripts/featurelab28_acceptance.py --csv /path/to/data.csv --report /path/to/report.json`。所有验收使用隔离数据目录，不改写原件。
+
+**实际验收范围**：当前开发容器无 DuckDB、PyArrow、Perspective 可安装资源，真实数值计算/Parquet 与 BI 浏览器面板在此环境未运行。所附工业结构样例为生成数据，不能作为实际产线数据证据。参见 `docs/FEATURELAB_V028_RELEASE_AND_REVIEW.md`。
+
+---
+
+# TimePilot v0.27.0 — 半自动特征工作台
+
+在 v0.26.1 数据目录启动恢复基础上，完成 v0.26.2 动态算子表单和 v0.27.0 半自动特征工程工作台。
+
+- **默认快速生成**：字段语义提示、基础/时序/工业/质量四种模板、批量候选、勾选筛选和保存到现有 FeatureSet。
+- **手工模式**：按算子元数据动态显示适用字段与参数，自动创建不重复的技术名；支持已确认 BOOLEAN 维护事件。
+- **候选预览**：通过现有后台租约任务执行只读样本计算，展示原始值/派生值、曲线与样本缺失信息；不将样本统计当成模型提升证据。
+- **会话恢复**：SQLite 项目目录 schema 31 保存候选、选择、模板及工作台布局；源 SHA 或契约修订改变时旧会话失效。
+- **保留原有链路**：DuckDB + Parquet、Perspective、FeatureSpecV2、审批、审计、版本化发布均保持兼容，无需 npm 或模型 API。
+
+详细使用步骤、接口契约、验收记录与已知限制：`docs/FEATURELAB_V027_RELEASE_AND_REVIEW.md`。
+
+本次源码测试按模块 65 项通过。**真实 DuckDB 特征计算、Perspective 加载及 Windows 实机效果尚待目标 Python 3.12.12 环境验收**。启动前可运行 `bash TIMEPILOT.sh db-check` 和 `bash TIMEPILOT.sh source-check`。
+
+---
+
+# TimePilot v0.26.1: database initialization and startup recovery
+
+The startup error that reported an unknown project catalog version for an
+already-upgraded v30 database has been fixed. New catalogs are created
+automatically and valid older catalogs are backed up before migration. The
+new `db-check` command reports the exact runtime data paths and refuses to
+reset unknown or corrupt files. Fresh installations default to `~/.timepilot`
+so source code can be safely replaced; an existing source-local `runtime`
+continues to be used unless you explicitly relocate it.
+
+```bash
+conda activate server
+bash TIMEPILOT.sh db-check
+bash TIMEPILOT.sh source-check
+bash TIMEPILOT.sh
+bash TIMEPILOT.sh accept catalog-bootstrap-v0261
+```
+
+Full details: [Catalog and startup guide](docs/CATALOG_STARTUP_V0261.md).
+
+---
+
+# 时骁 TimePilot v0.26.0（FeatureLab 2.0 审阅修复与实验集成源码版）
+
+## v0.25.7—v0.26.0 本轮改造
+
+- **v0.25.7**：修复七项独立审阅缺陷：成功产物门禁、监督 TaskSpec 绑定、二分类非法标签、资产切换清理旧状态、Viewer 快照失效、幂等任务指纹及 IANA 时区校验。
+- **v0.25.8**：统一发布、查看、原生 WebSocket 的物化资产资格校验；加入取消/物化提交的租约栅栏、跨版本保护和真实 DuckDB 数值测试（目标机执行）。
+- **v0.25.9**：严格二分类标签域和验证折类别报告；支持按设备与真实事件时间计算“距最近维护时间”的安全算子；特征构造时可绑定监督任务，评价沿用固定 TaskSpec。
+- **v0.26.0**：Agent 多步计划支持计算 → Perspective 双面板 → 渲染回执。缺少真实计算或界面回执时停留在等待/失败状态，不提前宣称成功。
+
+**交付边界**：完整源码与离线契约/组件测试；真实 DuckDB、PyArrow 与 Perspective 5.6.1 JS/WASM 的 FeatureLab 全链路验收仍需在 Python 3.12.12 的目标机器完成。历史资产、审批和 FeatureRecipe 保持兼容。
+
+```bash
+bash TIMEPILOT.sh source-check
+bash TIMEPILOT.sh accept feature-audit-v0257
+bash TIMEPILOT.sh accept feature-engine-v0258
+bash TIMEPILOT.sh accept feature-industrial-v0259
+bash TIMEPILOT.sh accept feature-agent-e2e-v0260
+bash TIMEPILOT.sh accept feature-agent-e2e-v0260 --mode configured
+```
+
+详见 [`docs/featurelab/ITERATION_V0257_V0260_QA.md`](docs/featurelab/ITERATION_V0257_V0260_QA.md)。
+
+---
+
+# 时骁 TimePilot v0.25.6（FeatureLab 2.0 正确性与交互集成源码版）
+
+## v0.25.3—v0.25.6 修复与增强
+
+- **v0.25.3**：字段时间语义类型门禁、监督任务与物化产物 PIT 证据绑定、任务取消与运行状态同步、任务租约与失败恢复。
+- **v0.25.4**：受预算限制的独立特征预览（不创建正式产物）、按真实时长的安全窗口算子和源可用时间检查。
+- **v0.25.5**：不可变配方修订快照、版本差异、按用户/项目隔离的 Perspective 工作区 token 保存，以及受控特征表与原始表对照连接。
+- **v0.25.6**：按意图筛选工具、草稿→预览的分步工具执行、持久化执行观测、等待作业完成与有限重规划、可读实验对照。
+
+**已验证**：新增 Python/HTTP 安全与服务契约测试、Node 前端回归、已安装 Chromium 的模拟 Viewer 组件检查。**尚未验证**：真实 DuckDB/Arrow 数值、真实 Perspective 5.6.1 JS/WASM 的完整 FeatureLab 特征对照和保存/刷新/撤销。源码包为 source-only，不含预编译 Perspective 二进制资源。不能将其宣称为生产环境完整验收通过。
+
+执行：`bash TIMEPILOT.sh`；逐版验收：`bash TIMEPILOT.sh accept feature-safety-v0253`、`feature-preview-v0254`、`feature-perspective-v0255`、`feature-agent-v0256`；`--mode configured` 将严格检测目标依赖，缺失时标记环境阻断。
+
+详细说明：[v0.25.3—v0.25.6 实施与验收](docs/featurelab/ITERATION_V0253_V0256_QA.md)。
+
+---
+
+# 时骁 TimePilot v0.25.2（FeatureLab 2.0 源码验证版）
+
+## FeatureLab 2.0 | v0.24.7—v0.25.2
+
+本轮新增：字段/时间/实体数据契约、可恢复画像作业、FeatureSpec v2 和安全算子 DAG、工业时序点时可用性检查、探索及监督对照评价、可审核发布的特征集、基线特征质量/漂移对比、动态 Agent 工具目录以及四个特征工作台页面。保留 v0.24.6 以前的特征配方和 BI 入口。
+
+**验收边界：**源码/HTTP/模拟接口、原生 Node 与本机 Chromium 组件可测试。仅在目标 Python 3.12.12 且安装 DuckDB、Arrow、已构建 Perspective 5.6.1 JS/WASM 后才能完成真实计算与全页面图表验收。本源码包不包含 JS/WASM 离线发布产物，不应标记为生产级 E2E 已通过。
+
+执行命令：`bash TIMEPILOT.sh`（仍沿用现有环境和自动前端构建）。独立验收：`bash TIMEPILOT.sh accept feature-agent-v0252`；真实验收门禁：`bash TIMEPILOT.sh accept feature-agent-v0252 --mode configured`。其他阶段见 `docs/featurelab/USER_GUIDE.md`。
+
+---
+
+# 历史版本：TimePilot v0.24.6（源码迭代版）
 
 工业时序数据整理、分析、研究评估和受控建模工作台。依赖以根目录 `requirements.txt` 和 `pyproject.toml` 为准。本地模式使用现有 Python 3.12 环境，提供数据导入、版本化 BI、人工语义标注、Agent 任务及滚动预测实验。
+
+
+## v0.24.6：图表系列保留与 BI 易用性
+
+- 在 Perspective 5.6.1 内切换图表类型时，优先保留当前面板手动拖入的兼容数据系列，不影响其它面板、筛选和原始表。
+- 「计算字段」「移动平均」「按时间汇总」「关联数据表」改为应用内字段选择表单，支持从当前图表已选系列填入；旧版 `prompt/confirm` 已从主要 BI 操作路径清除。
+- BI 分析助手缩放尺寸与用户/资产绑定，标题栏只保留关闭按钮；右上角新增带分类检索的「使用手册」。
+- 高级操作按任务分类，审核和建模等低频操作收纳；旧数据及审批链保持兼容。
+
+使用说明：[BI 使用手册](docs/BI_USER_GUIDE_CN.md)。改动范围、回归及真实引擎验收边界：[v0.24.6 质量报告](docs/ITERATION_V0246_QA.md)。
+
+## v0.24.1—v0.24.5：数据契约、FeatureLab、工作区一致性与语义计算
+
+本轮从 v0.24.0 源码增量推进五个阶段：摘要任务 SQLite 租约与断点恢复、依赖检查、按源单元格证据确认 Region 的 DataContract、原生 Perspective Viewer 单实例状态保留、可审核/发布的工业时序 FeatureLab、动态工具字段检索与多步受限规划。
+
+**对话助手**默认只显示简洁提问框和根据当前真实数值字段生成的建议操作；高级版本、派生审核、建模和工业工具移到折叠区。自然语言「A8+A10 生成新列」「A2、A4 移动平均」有确定性、安全校验的工具路径；默认窗口为 5 条源记录，并明确注明不推断时间单位。计算结果先作为只读预览，原件不变；训练使用须经特征配方审核或派生数据审批。
+
+```bash
+bash TIMEPILOT.sh source-check
+bash TIMEPILOT.sh accept bi-recovery-v0241
+bash TIMEPILOT.sh accept import-contract-v0242
+bash TIMEPILOT.sh accept bi-workspace-v0243
+bash TIMEPILOT.sh accept feature-lab-v0244
+bash TIMEPILOT.sh accept bi-reasoning-v0245
+bash TIMEPILOT.sh accept bi-reasoning-v0245 --mode configured
+```
+
+**请注意：** 交付为 source-only，未预编译本机 Perspective JS/WASM；当前容器缺 DuckDB、PyArrow，尚未完成真实数据引擎与 Chrome 的完整端到端验收。旧 99 条规则评测准确率 84.85%，仍低于 90% 目标；单元测试通过不意味着工业数据计算质量已经达标。详见 [`docs/ITERATION_V0241_V0245_QA.md`](docs/ITERATION_V0241_V0245_QA.md)。
+
+## v0.23.6—v0.24.0：资产管理、统一 Perspective 工作区与受限 Agent
+
+本轮围绕项目内数据目录、全屏工作区、Perspective 5.6.1 能力清单和 Agent 执行链路做增量重构。
+
+- **资产管理**：项目内 SQLite 分页搜索、打开资产详情和真实字段、逻辑移入回收站、恢复、引用影响预检与审计；原始文件、已发布版本及历史模型不删除。物理彻底清理仍禁用。
+- **BI 工作台**：在项目路由默认使用独立全视口布局；原生 Perspective Viewer 占据主体，历史查询/编辑/版本操作保留在高级抽屉中。手工与 Agent 图表更新使用同一 Viewer；不再将有限 `query.arrow?limit=1000` 结果当作全量源表。
+- **状态一致性**：保存已授权原生 Viewer token、来源哈希、工作区修订与渲染回执；浏览器事件和 Agent 更新共用状态通道，并用修订冲突阻止覆盖。
+- **能力与 Tools**：用锁定的 5.6.1 版本及实际数据引擎声明功能，注册的可用工具有明确参数 Schema 和执行接口。窗口、跨表关联、ExprTK 等未完成原生对齐时会返回不可用原因。
+- **Agent**：“查看数据字段”“查看前20行”“资产概览”等直接走只读工具。复杂任务可使用有上限的工具规划器；可在 OpenAI 推理模型配置中选择推理档位；模型建议经过服务端工具、字段、权限和数据版本校验。
+
+完整源码、迁移说明、验收状态和未完成的真实端到端条件参见 [`docs/ITERATION_V0236_V0240_QA.md`](docs/ITERATION_V0236_V0240_QA.md)。
+
+```bash
+bash TIMEPILOT.sh source-check
+bash TIMEPILOT.sh accept assets-v0236
+bash TIMEPILOT.sh accept bi-fullscreen-v0237
+bash TIMEPILOT.sh accept perspective-parity-v0238
+bash TIMEPILOT.sh accept bi-tools-v0239
+bash TIMEPILOT.sh accept bi-agent-v0240
+# 在目标 Python 3.12.12、DuckDB、PyArrow 和离线 Perspective 均就绪的机器上：
+bash TIMEPILOT.sh accept bi-agent-v0240 --mode configured
+```
+
+**发行边界**：本 ZIP 为 SHA256 校验的完整源代码包，不包含未实际编译的 Perspective JS/WASM。离线单元/DOM/合成浏览器测试通过不代表真实 DuckDB→Perspective→Agent 链路已通过。`configured` 验收缺少运行时依赖时明确阻断；不得改写为“已通过”。
 
 
 ## v0.22.0—v0.22.1：通用数据解析与多表导入
@@ -9,13 +204,43 @@
 
 无模型 API 也能完成确定性扫描和发布；开启已配置模型后，可调用受控的 `import.*` 只读结构工具辅助解释。批次登记支持中断后修复缺失的子任务关联；真实 BI 导入还会在全量列扫描中保护晚到的前导零编码。企业权限、原始文件哈希、逐工作表恢复和发布分块检查点继续保留。旧数据/模型 API 保持兼容，但预测专用转换不再出现在通用导入主流程。完整接口、限制及验收见 [通用导入说明](docs/UNIVERSAL_IMPORT_BATCH_V0221.md)。后续 v0.23 将单独开发对话式 BI 工具库。
 
+
+## v0.23.3—v0.23.5：原生工作台、结构摘要与模糊分析（源码迭代版）
+
+本次版本在 v0.23.2 的现有项目/原生 BI/Agent 契约上增加：原生大画布与浮动分析助手、按资产和用户作用域持久化 UI 偏好、源文件哈希校验的多表 Region 统计摘要、可恢复的分析计划记录与受限 DuckDB Pearson 相关矩阵、原生工作区矩阵热力图呈现。原有 99 条指令评测集保留，单独新增 56 条开发者合成模糊指令集。
+
+**验收声明：** 当前交付为源代码包，未提供预编译 Perspective JS/WASM，且目标机真实数据引擎/Chrome 全链路尚未验收；开发者合成指标不能当作模型/业务准确率。详细任务逐条实现状况、可运行命令、受限项见 [`docs/ITERATION_V0233_V0235_QA.md`](docs/ITERATION_V0233_V0235_QA.md)。
+
+```bash
+bash TIMEPILOT.sh source-check
+bash TIMEPILOT.sh accept bi-ui-v0233
+bash TIMEPILOT.sh accept import-summary-v0234
+bash TIMEPILOT.sh accept bi-fuzzy-v0235
+bash TIMEPILOT.sh accept bi-fuzzy-v0235 --mode configured
+```
+
+## v0.23.2：经审核派生数据、可量化 BI Agent、工业验收
+
+- BI 的关联、计算、时间聚合、维护事件标记可申请冻结为新的不可变表；审批后发布，并在项目中创建模型草稿。图表标记不会自动成为训练标签。
+- 固定 99 条中文 BI 工具调用基准，区分离线规则评估与已配置模型的真实评估，报告准确率、越权、歧义拒绝和恢复率。
+- `bash TIMEPILOT.sh accept derived-real` 在安装 DuckDB/PyArrow 的环境执行真实物化；`accept bi-nl` 运行离线基线；`accept industrial-bi` 执行真实 DuckDB/Arrow 长时测试。企业 HTTPS 和 Chrome 浏览器仍分别通过原有验收工具。
+- 详细契约与验收见 `docs/APPROVED_DERIVATIONS_AND_BI_EVAL_V0232.md`。
+
+## v0.23.0-v0.23.1: Conversational BI and project modeling
+
+The project BI uses a project-bound agent workbench with a validated tool catalog, bounded DuckDB queries, actual Arrow-backed Perspective charts, a persisted per-user conversation transcript and reversible workspace revisions. Core actions include filters, sorting, projection, aggregates, numeric calculation expressions and native chart panel creation. Users can preview tool plans, apply them, save dashboard configurations, reopen saved views and undo/redo changes. Real free-form language depends on an optional configured model; the no-model planner only supports explicitly known Chinese patterns.
+
+The second stage adds guarded cross-table virtual JOIN (exact grouped-count preview, 250k row output and 5x fanout ceilings), timestamp bucketing, rolling averages and industrial maintenance/regime overlays. Generic published tables can be discovered directly as association sources. From a pure row-level filtered workspace the user can freeze a full-row DataSelection and create an existing review-required model draft. Virtual JOINs/calculations/aggregates cannot silently become training data; materialization needs a separate reviewed stage.
+
+**Run:** `bash TIMEPILOT.sh accept conversational-bi` (real DuckDB/Arrow; fails with a BLOCKED result if missing dependencies), `bash TIMEPILOT.sh accept conversational-bi-ui` (existing browser, DOM stub), and `bash TIMEPILOT.sh accept native` (real built Perspective WASM and browser). All three must be distinguished in formal acceptance. [Implementation, API and audit](docs/CONVERSATIONAL_BI_WORKBENCH_V0231.md).
+
 ## 启动与诊断
 
 在已有 Conda 环境中执行。**正常启动不运行 pip、不创建环境、不下载浏览器。首次启动或 BI 源码发生变化时，如缺少已编译 Perspective 资源，会自动使用本机 Node/npm 安装锁定的前端依赖、构建 JS/WASM、验签并启动；此后启动复用本地已校验资源。** 首次构建可能需要访问 npm Registry。macOS 已通过 nvm 安装 Node 24 时，启动入口会自动切换到该版本，无需手动 `nvm use 24`。强制离线可设置 `TIMEPILOT_OFFLINE=1`，此时只尝试现有 node_modules 或已编译离线包，缺失则明确中止。
 
 ```bash
 conda activate server
-cd /path/to/TimePilot_v0.22.1
+cd /path/to/TimePilot_v0.24.0
 bash TIMEPILOT.sh
 ```
 
@@ -26,6 +251,8 @@ bash TIMEPILOT.sh
 | 操作 | Mac/Linux 命令 |
 | --- | --- |
 | 启动服务 | `bash TIMEPILOT.sh` |
+| Conversational BI real DuckDB/Arrow acceptance | `bash TIMEPILOT.sh accept conversational-bi` |
+| Conversational BI existing Chrome DOM smoke | `bash TIMEPILOT.sh accept conversational-bi-ui` |
 | 环境诊断 | `bash TIMEPILOT.sh check` |
 | 查看当前状态 | `bash TIMEPILOT.sh status` |
 | 校验完整源码 | `bash TIMEPILOT.sh source-check` |
@@ -139,3 +366,12 @@ bash TIMEPILOT.sh
 - `bash TIMEPILOT.sh accept enterprise`：真实 HTTPS 及本机 Chrome 多租户验收；`accept native`：真实 Perspective WebSocket/Chrome 验收。
 
 **交付边界：** 开发环境能够测试真实百万行发布恢复和 HTTP 身份隔离，但缺少完整 DuckDB/Perspective 与可访问本地 HTTPS 的 Chrome 时，会将集成验收记录为 `blocked`。企业模式仍是单实例本地身份体系，不包含 SSO/MFA 或物理租户隔离；公网生产前应完成专门安全评估。源代码 ZIP 不含预编译 JS/WASM，首次启动自动构建，或者在发布机器生成完整离线发行包。
+
+### v0.24.6 BI 交互验收
+
+```bash
+bash TIMEPILOT.sh accept bi-ux-v0246
+bash TIMEPILOT.sh accept bi-ux-v0246 --mode configured
+```
+
+第一条验证源码、图表系列保留逻辑、表单、浮窗和帮助弹层；第二条还要求目标机本地真实 Perspective JS/WASM、DuckDB、PyArrow 和系统 Chrome，环境不齐全时明确阻断。

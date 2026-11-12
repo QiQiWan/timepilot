@@ -40,3 +40,32 @@ export async function loadNamedClient(viewer, client, table, step = async promis
   await step(viewer.restore(gridConfig(schema, tableName)), 'Perspective 数据网格渲染', 12000);
   return {tableName, schema};
 }
+
+/** Explicit columns from a reviewed BI tool plan (never guess fields or units). */
+export function analyticalChartConfig(chart, schema, tableName) {
+  if (!chart || !schema || !tableName) throw new Error('缺少图表数据或版本');
+  const available = new Set(Object.keys(schema).filter(x => x !== '__tp_rowid'));
+  if ((chart.x && !available.has(chart.x)) || (chart.color && !available.has(chart.color)) ||
+    !(chart.y || []).every(x => available.has(x))) {
+    throw new Error('图表配置引用的数据字段不在 DuckDB 结果中');
+  }
+  const types = {grid:'Datagrid',pivot:'Datagrid',bar:'Y Bar',line:'Y Line',
+    area:'Y Area',scatter:'X/Y Scatter',heatmap:'Heatmap',histogram:'Y Bar'};
+  const plugin=types[chart.type];
+  if(!plugin)throw new Error(`不支持的图表类型：${chart.type}`);
+  if(chart.type==='grid')return gridConfig(schema,tableName);
+  const y=(chart.y||[]).filter(v=>v!==chart.x);
+  if(chart.type==='pivot')return {table:tableName,plugin,group_by:chart.x?[chart.x]:[],
+    columns:y.length?y:[...available].filter(x=>x!==chart.x).slice(0,8),settings:true};
+  if(!y.length)throw new Error('图表需要明确的 Y 轴数据列');
+  if(chart.type==='scatter'){
+    if(!chart.x)throw new Error('散点图需要明确的 X 轴字段');
+    return {table:tableName,plugin,columns:[chart.x,...y],
+      split_by:chart.color?[chart.color]:[],settings:true};
+  }
+  if(chart.type==='histogram'){
+    throw new Error('直方图必须先创建可审计的数值分箱，不能把类别柱状图冒充直方图');
+  }
+  return {table:tableName,plugin,group_by:chart.x?[chart.x]:[],columns:y,
+    split_by:chart.color?[chart.color]:[],settings:true};
+}

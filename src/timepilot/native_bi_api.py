@@ -261,7 +261,7 @@ def create_native_bi_router(native: NativeBIService, legacy, settings, models=No
         if not project_id:
             return False
         import re
-        match=re.search(r'/((?:assets)|(?:linked))/([^/]+)/versions/([^/]+)/ws$',websocket.url.path)
+        match=re.search(r'/((?:assets)|(?:linked))/([^/]+)/versions/([^/]+)(?:/feature-artifacts/[^/]+)?/ws$',websocket.url.path)
         if not match:
             return False
         try:
@@ -340,6 +340,52 @@ def create_native_bi_router(native: NativeBIService, legacy, settings, models=No
             await websocket.close(code=1011, reason='Perspective Python dependency missing')
         except (NativeBIError, ValueError, KeyError):
             await websocket.close(code=1008, reason='Invalid asset or immutable data revision')
+
+    @router.websocket('/assets/{asset_id}/versions/{version_id}/feature-artifacts/{artifact_id}/ws')
+    async def feature_comparison_perspective(websocket:WebSocket,asset_id:str,version_id:str,artifact_id:str):
+        # One server; source and immutable derived result share its connection.
+        # No original bytes or arbitrary filesystem paths pass through the client.
+        if not allowed_origin(websocket):
+            await websocket.close(code=1008,reason='Same-origin project access required')
+            return
+        pid=websocket.query_params.get('project_id')
+        jobs=getattr(websocket.app.state,'feature_jobs',None)
+        registry=getattr(websocket.app.state,'feature_registry',None)
+        if not pid or jobs is None or registry is None:
+            await websocket.close(code=1008,reason='FeatureLab project scope missing')
+            return
+        try:
+            registry.projects.require_native(pid,asset_id)
+            with registry.projects._db() as db:
+                linked=db.execute('''SELECT r.set_id FROM feature_artifacts a
+                    JOIN feature_runs r ON r.run_id=a.run_id
+                    JOIN feature_sets f ON f.set_id=r.set_id AND f.project_id=a.project_id
+                    WHERE a.project_id=? AND a.artifact_id=? AND f.asset_id=?
+                      AND f.version_id=?''',(pid,artifact_id,asset_id,version_id)).fetchone()
+            if not linked:raise ValueError('特征物化结果或来源不存在')
+            rec=registry.get(pid,linked['set_id'])
+            from timepilot.feature_artifact_policy import eligible_artifact
+            semantic=getattr(websocket.app.state,'feature_semantic',None)
+            candidate=eligible_artifact(registry.projects,pid,rec,semantic,artifact_id=artifact_id)
+            if candidate is None:raise ValueError('特征结果不满足成功、版本及文件完整性要求')
+            path=candidate['path']
+            meta=native.asset(asset_id)
+            native._version(asset_id,version_id)
+            with native._connection() as con:
+                source_sql=native._effective_sql(asset_id,version_id,meta['columns'])
+                prepare_perspective_source(con,source_sql)
+                # Path is server-resolved from an authorized row; do not accept
+                # any user-provided SQL, identifier, or filesystem path.
+                path_sql=str(path).replace("'","''")
+                con.execute('''CREATE VIEW timepilot_feature_artifact AS
+                  SELECT ROW_NUMBER() OVER ()-1 AS "__tp_rowid", *
+                  FROM read_parquet('''+"'"+path_sql+"'"+''')''')
+                server=create_timepilot_virtual_server(con)
+                await run_limited_websocket(websocket,server,connection=con)
+        except ImportError:
+            await websocket.close(code=1011,reason='Perspective or DuckDB missing')
+        except (KeyError,ValueError,NativeBIError):
+            await websocket.close(code=1008,reason='Feature artifact unavailable')
 
     @router.websocket('/linked/{asset_id}/versions/{version_id}/ws')
     async def linked_asset_perspective(websocket: WebSocket, asset_id: str, version_id: str):

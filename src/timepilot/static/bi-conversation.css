@@ -1,0 +1,49 @@
+.tp-conversation {margin-top:16px}
+.tp-bi-agent-layout{display:grid;grid-template-columns:minmax(0,1.65fr) minmax(230px,1fr);gap:22px;align-items:start;margin-top:15px}
+.tp-bi-agent-chat{min-width:0}
+.tp-bi-agent-messages{height:260px;overflow:auto;display:flex;flex-direction:column;gap:10px;background:var(--surface,#f7f9fc);border:1px solid var(--line,#dfe6f0);border-radius:12px;padding:14px}
+.tp-bi-agent-msg{max-width:95%;border:1px solid #e0e7f0;background:#fff;border-radius:12px;padding:10px 14px;font-size:13px}
+.tp-bi-agent-msg.is-user{align-self:flex-end;background:#eaf3ff;border-color:#d4e5fa}
+.tp-bi-agent-msg p{margin:5px 0;line-height:1.6;white-space:pre-wrap;overflow-wrap:anywhere}
+.tp-bi-agent-msg small{color:#65758a;overflow-wrap:anywhere}
+.tp-bi-agent-placeholder{color:#63728b;font-size:13px;line-height:1.8;padding:18px 8px}
+.tp-bi-agent-form{margin-top:12px}.tp-bi-agent-form textarea{width:100%;resize:vertical;min-height:78px}
+.tp-bi-agent-examples{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:12px}
+.tp-bi-agent-side{border-left:1px solid #e4eaf3;padding:4px 0 6px 20px;min-width:0}
+.tp-bi-agent-side h3{font-size:14px;margin:0 0 12px}
+.tp-bi-agent-side h3:not(:first-child){margin-top:18px}
+.tp-bi-agent-tags{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
+.tp-bi-agent-tag{font-size:12px;background:#f0f5fa;border-radius:6px;padding:5px 8px;overflow-wrap:anywhere}
+.tp-bi-agent-buttons,.tp-bi-agent-views{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}
+@media(max-width:920px){.tp-bi-agent-layout{grid-template-columns:1fr}.tp-bi-agent-side{border-left:0;border-top:1px solid #e4eaf3;padding:14px 0 4px}}
+
+.tp-bi-agent-derivations{display:flex;flex-direction:column;gap:8px;margin:10px 0 14px}
+.tp-bi-agent-derivation{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px;border:1px solid #e1e8f0;border-radius:9px;padding:8px 10px}
+.tp-bi-agent-derivation strong{font-size:12px;overflow-wrap:anywhere}
+
+/* v0.24.5: a single conversational surface; infrequent administration stays folded. */
+.tp-bi-agent-layout{display:flex;flex-direction:column;gap:12px;min-width:0}
+.tp-bi-agent-chat{width:100%;max-width:100%;min-width:0}
+.tp-bi-agent-messages{height:clamp(150px,28dvh,360px);overflow-y:auto}
+.tp-bi-agent-examples{margin:12px 0 8px;gap:7px}
+.tp-bi-agent-examples button{white-space:normal;min-height:32px;text-align:left}
+.tp-bi-agent-form textarea{min-height:64px;max-height:180px}
+.tp-bi-agent-side{border:1px solid var(--line,#dfe6f0);border-radius:10px;padding:0;width:100%;margin:0}
+.tp-bi-agent-side summary{cursor:pointer;font-size:12px;color:var(--muted,#62758b);padding:10px 14px;list-style-position:inside}
+.tp-bi-agent-side-inner{padding:4px 14px 14px;border-top:1px solid var(--line,#dfe6f0)}
+.tp-bi-agent-side:not([open]) .tp-bi-agent-side-inner{display:none}
+.tp-bi-agent-form .action-row{margin-top:7px;display:flex;gap:8px}
+/* v0.24.6: task-oriented advanced actions, compact layout inside the assistant. */
+.tp-bi-tools-group{padding:11px 0;border-bottom:1px solid #edf1f6}
+.tp-bi-tools-group:first-child{padding-top:8px}.tp-bi-tools-group h3{font-size:13px;margin:0 0 5px;color:#30465e}
+.tp-bi-tools-group .tp-bi-agent-buttons{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;margin:9px 0}
+.tp-bi-tools-group .tp-bi-agent-buttons button{text-align:left;justify-content:flex-start;font-size:12px;min-height:32px;padding:7px 9px}
+.tp-bi-agent-data-note{font-size:12px;color:#526982;margin:0 0 7px;overflow-wrap:anywhere}
+.tp-bi-subdetails{border:1px solid #e5ecf4;border-radius:8px;background:#fafbfd;margin:8px 0;padding:0 10px}
+.tp-bi-subdetails>summary{padding:10px 0;cursor:pointer;font-size:12px;color:#465f7d}
+.tp-bi-subdetails>.tp-bi-agent-tags{padding-bottom:8px}
+.tp-bi-governance{margin-top:12px;padding:0 10px 10px}
+.tp-bi-governance .tp-bi-agent-buttons{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;margin:8px 0}
+.tp-bi-agent-views{margin:8px 0}.tp-bi-agent-side-inner>div#tp-bi-agent-status{padding:8px 0}
+.tp-bi-agent-side>summary{font-weight:600;color:#405d7b}
+.tp-bi-agent-side>summary .muted{margin-left:5px;font-weight:400}

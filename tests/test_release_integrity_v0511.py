@@ -31,7 +31,7 @@ def signed_archive(tmp_path_factory):
 def test_manifest_contains_all_critical_modules_and_consistent_version():
     manifest = integrity.build_manifest(ROOT)
     version = integrity.project_version(ROOT)
-    assert manifest['version'] == '0.22.1' == version
+    assert manifest['version'] == version == integrity.project_version(ROOT)
     assert manifest['format'] == 2
     assert set(integrity.REQUIRED).issubset(manifest['files'])
     assert 'src/timepilot/sdk.py' in manifest['files']
@@ -44,7 +44,7 @@ def test_zip_is_complete_and_byte_verified(signed_archive):
     data, manifest = repair.load_verified_archive(signed_archive)
     assert 'src/timepilot/sdk.py' in data
     assert len(data) == len(manifest['files']) + 1
-    assert manifest['version'] == '0.22.1'
+    assert manifest['version'] == integrity.project_version(ROOT)
 
 
 def test_no_partial_patch_is_accepted(tmp_path):

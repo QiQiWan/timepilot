@@ -15,7 +15,9 @@
   const statusMap={queued:['等待执行','running'],running:['执行中','running'],succeeded:['已完成','success'],failed:['执行失败','failed'],cancel_requested:['取消请求中','review'],cancelled:['已取消','cancelled']};
   const statusBadge = s => {const [name,type]=statusMap[s]||[s,'']; return `<span class="badge ${type}">${E(name)}</span>`};
   function toast(msg) {const box=document.getElementById('toast');box.textContent=msg;box.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>box.classList.remove('show'),4200)}
-  async function req(url, opts={}) {const result=await fetch(API+url, opts); let data;try{data=await result.json()}catch{data=null}if(!result.ok){let detail=data?.detail||`HTTP ${result.status}`;if(Array.isArray(detail))detail=detail.map(x=>x.message||JSON.stringify(x)).join('；');throw new Error(String(detail))}return data}
+  async function req(url, opts={}) {const result=await fetch(API+url, opts); let data;try{data=await result.json()}catch{data=null}if(!result.ok){let detail=data?.detail||`HTTP ${result.status}`;if(Array.isArray(detail))detail=detail.map(x=>x.message||JSON.stringify(x)).join('；');
+    else if(detail&&typeof detail==='object')detail=detail.message||detail.code||JSON.stringify(detail);
+    throw new Error(String(detail))}return data}
   async function refresh(){
     const result=await Promise.allSettled([window.TIMEPILOT_ENTERPRISE?Promise.resolve([]):req('/datasets'),window.TIMEPILOT_ENTERPRISE?Promise.resolve([]):req('/runs'),req('/plugins'),window.TIMEPILOT_ENTERPRISE?Promise.resolve(generalSettings):req('/settings/general')]);
     if(result[0].status==='fulfilled')datasets=result[0].value;
@@ -109,6 +111,8 @@
     ${events.length>6?`<details class="log-archive"><summary>查看更早的 ${events.length-6} 条运行日志</summary><div class="timeline">${events.slice().reverse().slice(6).map(e=>`<div class="timeline-row"><span class="timeline-dot"></span><div><b>${E(eventText(e))}</b><br/><small>${dateText(e.timestamp)} · ${E(e.event)}</small></div></div>`).join('')}</div></details>`:''}</div>`}
   function pluginsPage(){return header('模型与插件','所有候选模型通过统一接口声明能力和可用性；各算法通过统一插件接口提供能力。')+`<div class="grid grid-2">${plugins.map(p=>`<div class="panel"><div class="card-header"><h2>${E(modelLabel(p.plugin_id))}</h2>${p.available?'<span class="badge success">已就绪</span>':'<span class="badge review">尚未安装</span>'}</div><p>${E(modelDescription(p.plugin_id,p.description))}</p><div class="key-value"><span>插件版本</span><b>${E(p.version)}</b></div><div class="key-value"><span>支持频率</span><b>${E(p.supports_frequency.join(' / '))}</b></div><div class="key-value"><span>依赖分组</span><b>${E(p.requires_extra||'核心依赖')}</b></div></div>`).join('')}</div><div class="helper" style="margin-top:20px">时骁 v0.4.0 已实现轻量预测插件、统一模型协议及可选 AutoGluon 适配器。动态机理模型和智能体自动实验仍属于下一阶段研发。</div>`}
   function helpPage(){return header('使用指南','从 BI 准备数据、接入模型服务，到预测任务与质量报告的完整操作说明。')+`
+    <div class="grid grid-2" style="margin-bottom:18px"><div class="panel"><h2>项目数据资产</h2><p>打开项目的数据管理，使用顶部搜索筛选资产名、来源工作表或字段。点击“打开”查看结构及版本；点击“进入 BI”打开全屏分析工作区。删除会移入项目回收站，原文件保留，可随时恢复。涉及运行中的模型任务会被阻止。</p></div>
+    <div class="panel"><h2>Perspective 与 Agent</h2><p>BI 主画布保留 Perspective 原生字段、过滤、排序、图表和布局操作。右下角分析助手支持“查看数据字段”“查看前20行”等只读命令；复杂需求先检查字段及运行时可用工具。图表配置会记录工作区版本；没有真实 Viewer 渲染回执的步骤不视为成功。</p></div></div>
     <div class="grid grid-2"><div class="panel"><h2>一 · 导入并检查原始数据</h2><p>在 <a class="link" href="/projects">智能导入</a> 上传 ZIP、多个 Excel、CSV 或 Parquet，自动识别工作表、年度和字段；在数据版本页核对口径、来源、缺失率和原始单元格。</p></div>
     <div class="panel"><h2>二 · 可视化清洗与分析</h2><p>在智能导入版本中选择统计口径和来源，查看趋势、异常候选及质量报告；需要高级交互时可发布到原生 BI。确认编辑后生成独立版本，原始文件保留。</p></div>
     <div class="panel"><h2>三 · 接入大模型辅助</h2><p>从 <a class="link" href="/settings/models">大模型服务设置</a> 填写兼容 API 地址、模型名和密钥，保存并测试连接。模型可生成 BI 操作建议和预测任务草稿，确认后才会执行写操作。</p></div>
@@ -122,6 +126,9 @@
     }catch(e){root.innerHTML=errorNotice()+header('任务不可用','无法读取该任务。')+`<div class="helper danger">${E(e.message)}</div>`}}
   async function render(){
     const current=page(),parts=(location.pathname||'/projects').replace(/^\//,'').split('/');lastRoute=location.pathname;
+    const isNative=/^\/projects\/[^/]+\/bi\/native\/[^/]+/.test(location.pathname);
+    window.TimePilotBIWorkspaceLayout?.mode(isNative);
+    if(!isNative){window.TimePilotBIFloating?.leave();window.TimePilotBIConversations?.reset();}
     document.getElementById('page-title').textContent=titles[current]||'运行详情';
     document.querySelectorAll('[data-nav]').forEach(x=>x.classList.toggle('active',x.getAttribute('href')==='/'+current));
     document.getElementById('sidebar').classList.remove('open');
@@ -151,7 +158,7 @@
     if(current==='agent'){await window.TimePilotAgentCenter.render({root,req,toast,navigate,route:location.pathname});return}
     if(current==='settings'){await window.TimePilotSettings.render({root,req,toast,navigate,route:location.pathname});return}
     const pages={new:newPage,runs:runsPage,plugins:pluginsPage,help:helpPage};
-    root.innerHTML=errorNotice()+(pages[current]||helpPage)()+`<div class="app-footer">TimePilot v0.22.1 · ${window.TIMEPILOT_ENTERPRISE?"企业受控模式":"本地研发环境"} · 数据来源与实验版本可追溯</div>`;
+    root.innerHTML=errorNotice()+(pages[current]||helpPage)()+`<div class="app-footer">TimePilot v0.24.6 · ${window.TIMEPILOT_ENTERPRISE?"企业受控模式":"本地研发环境"} · 数据来源与实验版本可追溯</div>`;
   }
   async function runDemo(){try{toast('正在创建合成数据示例…');const result=await req('/demo/bootstrap',{method:'POST'});toast('示例任务已提交，正在执行');navigate('/runs/'+result.run_id);await render()}catch(e){toast('示例执行失败：'+e.message)}}
   async function handleClick(event){const el=event.target.closest('[data-action]');if(!el)return;
@@ -197,6 +204,8 @@
     box.querySelector('#float-collapse').onclick=()=>{floatCollapsed=!floatCollapsed;updateFloating()};box.querySelector('#float-open').onclick=()=>navigate('/runs/'+active.run_id);
   }
   document.addEventListener('click',event=>{
+    if(window.TimePilotFeatureV2UI?.click && event.target.closest('[data-feature-v2]')){window.TimePilotFeatureV2UI.click(event);return;}
+    if(window.TimePilotFeatureLabUI?.click && event.target.closest('[data-feature]')){window.TimePilotFeatureLabUI.click(event);return;}
     if(window.TimePilotProjectBI?.click && event.target.closest('[data-project-bi]')){window.TimePilotProjectBI.click(event);return;}
     const a=event.target.closest('a[href]');
     if(!a || a.getAttribute('href')?.startsWith('#') || a.hasAttribute('download') || event.defaultPrevented || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button!==0)return;
@@ -206,6 +215,7 @@
     }
   });
   document.addEventListener('click',event=>{
+    if(window.TimePilotBIConversations?.click && event.target.closest('[data-bi-agent]')){window.TimePilotBIConversations.click(event);return;}
     if(window.TimePilotProjects?.click && event.target.closest('[data-project]')){window.TimePilotProjects.click(event);return;}
     if(window.TimePilotResearch?.click && event.target.closest('[data-research]')){window.TimePilotResearch.click(event);return;}
     if(window.TimePilotAgentCenter?.click && event.target.closest('[data-agent]')){window.TimePilotAgentCenter.click(event);return;}
@@ -215,6 +225,9 @@
     handleClick(event);
   });
   document.addEventListener('submit',event=>{
+    if(window.TimePilotBIConversations?.submit && event.target?.id==='tp-bi-agent-form'){window.TimePilotBIConversations.submit(event);return;}
+    if(window.TimePilotFeatureV2UI?.submit && event.target?.id?.startsWith('tp-fl2-')){window.TimePilotFeatureV2UI.submit(event);return;}
+    if(window.TimePilotFeatureLabUI?.submit && event.target?.id==='tp-feature-form'){window.TimePilotFeatureLabUI.submit(event);return;}
     if(window.TimePilotProjects?.submit && event.target?.id?.startsWith('project-')){window.TimePilotProjects.submit(event);return;}
     if(window.TimePilotResearch?.submit && event.target?.id?.startsWith('research-')){window.TimePilotResearch.submit(event);return;}
     if(window.TimePilotAgentCenter?.submit && event.target?.id==='agent-job-form'){window.TimePilotAgentCenter.submit(event);return;}
@@ -228,6 +241,8 @@
   });
   document.addEventListener('change',event=>{
     if(window.TimePilotModeling?.change && event.target?.closest('#tp-modeling-form') && window.TimePilotModeling.change(event))return;
+    if(window.TimePilotFeatureV2UI?.change && event.target?.dataset.featureV2Change){window.TimePilotFeatureV2UI.change(event);return;}
+    if(window.TimePilotFeatureLabUI?.change && ['select-asset','choose-kind'].includes(event.target?.dataset.feature)){window.TimePilotFeatureLabUI.change(event);return;}
     if(window.TimePilotProjectBI?.change && event.target?.id==='project-bi-version'){window.TimePilotProjectBI.change(event);return;}
     if(window.TimePilotProjects?.change && window.TimePilotProjects.change(event))return;
     if(window.TimePilotAgentCenter?.changed && window.TimePilotAgentCenter.changed(event))return;

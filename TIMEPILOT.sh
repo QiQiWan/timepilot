@@ -22,5 +22,7 @@ if [ -s "${NVM_DIR:-$HOME/.nvm}/nvm.sh" ]; then
 fi
 command -v python >/dev/null 2>&1 || { echo '[FAIL] Activate your EXISTING Python 3.12 environment.' >&2; exit 2; }
 export PYTHONPATH="$PROJECT_ROOT/src${PYTHONPATH:+:$PYTHONPATH}"
-export TIMEPILOT_HOME="${TIMEPILOT_HOME:-$PROJECT_ROOT/runtime}"
+# The launcher selects ~/.timepilot for a fresh installation, but reuses
+# an existing project/runtime directory for compatibility. Respect an explicit
+# TIMEPILOT_HOME. Do not store a new SQLite database next to cloud-sync code.
 exec python "$PROJECT_ROOT/scripts/launcher.py" "$@"

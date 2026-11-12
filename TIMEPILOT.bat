@@ -7,6 +7,6 @@ if errorlevel 1 (
   exit /b 2
 )
 set "PYTHONPATH=%CD%\src;%PYTHONPATH%"
-if "%TIMEPILOT_HOME%"=="" set "TIMEPILOT_HOME=%CD%\runtime"
+REM Launcher selects a stable user-local home, preserving existing runtimes.
 python scripts\launcher.py %*
 exit /b %ERRORLEVEL%

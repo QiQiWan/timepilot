@@ -2,7 +2,7 @@
  * interactive charts live only in the Perspective BI page. */
 (() => {
   'use strict';
-  let ctx=null, project=null, importInfo=null, importCatalog=null, importCurrentRegion=null, executing=null, timer=null;
+  let ctx=null, project=null, importInfo=null, importCatalog=null, importCurrentRegion=null, executing=null, timer=null, summaryTimer=null;
   const esc=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const u=x=>encodeURIComponent(String(x));
   const post=x=>({method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(x)});
@@ -10,10 +10,10 @@
   const api=(p,o)=>ctx.req('/projects'+p,o);
   const projectPath=p=>'/projects/'+u(p);
   const breadcrumb=(label,extra='')=>`<div class="project-breadcrumb"><a href="/projects">全部项目</a><span>/</span><a href="${projectPath(project.id)}">${esc(project.name)}</a><span>/</span><b>${esc(label)}</b>${extra}</div>`;
-  const frame=(label,body,actions='')=>`${breadcrumb(label)}<div class="page-heading"><div><h1>${esc(label)}</h1><p>${esc(project.description||'项目内的数据、分析、模型和运行记录统一管理。')}</p></div>${actions}</div><div class="project-tabs">${[['','概览'],['data','数据管理'],['models','模型管理'],['tasks','任务记录']].map(([suffix,name])=>`<a href="${projectPath(project.id)}${suffix?'/'+suffix:''}" class="${(location.pathname===projectPath(project.id)+(suffix?'/'+suffix:''))?'active':''}">${name}</a>`).join('')}</div>${body}`;
+  const frame=(label,body,actions='')=>`${breadcrumb(label)}<div class="page-heading"><div><h1>${esc(label)}</h1><p>${esc(project.description||'项目内的数据、分析、模型和运行记录统一管理。')}</p></div>${actions}</div><div class="project-tabs">${[['','概览'],['data','数据管理'],['features','特征工程'],['models','模型管理'],['tasks','任务记录']].map(([suffix,name])=>`<a href="${projectPath(project.id)}${suffix?'/'+suffix:''}" class="${(location.pathname===projectPath(project.id)+(suffix?'/'+suffix:''))?'active':''}">${name}</a>`).join('')}</div>${body}`;
   const message=(t,type='warning')=>`<div class="helper ${type}">${esc(t)}</div>`;
   const empty=(t,subtitle='')=>`<div class="empty"><b>${esc(t)}</b><p>${esc(subtitle)}</p></div>`;
-  function stop(){if(timer){clearInterval(timer);timer=null}}
+  function stop(){if(timer){clearInterval(timer);timer=null}if(summaryTimer){clearTimeout(summaryTimer);summaryTimer=null}}
   function makeLink(label,path,primary=false){return `<a class="button${primary?' button-primary':''}" href="${path}">${label}</a>`}
   async function allProjects(){
     const list=await api('');project=null;
@@ -31,33 +31,16 @@
     const pending=imports.filter(x=>x.version_count===0&&!publishedImports.has(x.import_id));
     const activeUploads=uploadJobs.filter(x=>!['succeeded','cancelled'].includes(x.status));
     const activePublications=(publishJobs.jobs||[]).filter(x=>x.status!=='succeeded').slice(0,20);
-    const orderedAssets=[...(catalog.assets||[])].sort((a,b)=>{
-      const group=x=>x.kind==='generic_table'?`${x.source_file||''} / ${x.source_sheet||''}`:'~预测序列';
-      return group(a).localeCompare(group(b),'zh-CN') ||
-        Number(a.source_region?.row_start||0)-Number(b.source_region?.row_start||0);
-    });
-    let lastSource='';
-    const rows=orderedAssets.map(a=>{
-      const generic=a.kind==='generic_table';
-      const sourceGroup=generic?`${a.source_file||'—'} / ${a.source_sheet||'—'}`:'预测专用数据版本';
-      const region=a.source_region;
-      const origin=region?` · 源区域 ${s(region.row_start)}–${s(region.row_end)} 行 / ${s(region.col_start)}–${s(region.col_end)} 列`:'';
-      const source=esc(sourceGroup)+origin;
-      const groupRow=sourceGroup===lastSource?'':`<tr class="tp-data-group-heading"><td colspan="6">${esc(sourceGroup)}</td></tr>`;
-      lastSource=sourceGroup;
-      const type=generic?'通用数据表':'预测序列';
-      const detail=generic?`${s(a.column_count)} 列`:'';
-      const path=projectPath(project.id)+'/bi/'+(generic?'native/':'')+u(a.native_asset_id||a.asset_id);
-      const quality={passed:'通过',warning:'需要核实',blocked:'存在阻断',unchecked:'待检查',unavailable:'文件异常'}[a.quality_status]||'待检查';
-      const qStatus=generic?`<span class="badge ${a.quality_status==='passed'?'success':a.quality_status==='blocked'?'review':''}">${quality}</span>`:'—';
-      const detailUrl=projectPath(project.id)+'/data/catalog/'+u(a.asset_id);
-      const action=a.missing?'<span class="muted">版本不可用，建议运行完整性巡检</span>':makeLink('进入 BI',path,true);
-      return `${groupRow}<tr data-project-catalog-row><td><a href="${generic?detailUrl:path}"><strong>${esc(a.name||a.asset_id)}</strong></a><div class="muted tiny">${source}</div></td><td>${type}</td><td>${s(a.row_count)} 行 <small class="muted">${detail}</small></td><td>${qStatus}</td><td class="mono">${esc((a.version_id||'').slice(0,12))}</td><td>${action}</td></tr>`;
-    }).join('');
-    ctx.root.innerHTML=frame('数据管理',`<div class="panel"><div class="section-row"><h2>项目数据资产 <span class="muted small">${s(catalog.count)}</span></h2>${makeLink('＋ 上传新数据',projectPath(project.id)+'/data/import',true)}</div><p class="muted small">所有原始字段保留在数据资产中；表格明细在正式 BI 查看。质量检查、字段确认和版本追溯在资产详情完成。</p><label class="field"><span>查找数据资产</span><input id="tp-asset-search" placeholder="按名称或来源快速筛选"></label>${catalog.assets.length?`<div class="table-wrap"><table class="data-table"><thead><tr><th>数据资产</th><th>类型</th><th>数据规模</th><th>质量状态</th><th>版本</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table></div>`:empty('还没有数据资产','上传 CSV、Excel 或 Parquet 后，系统自动发现数据表并发布至 BI。')}</div>${nativeAssets.length?`<div class="panel" style="margin-top:22px"><details><summary>派生编辑版本（高级）</summary>${nativeAssets.map(x=>`<a class="project-pending" href="${projectPath(project.id)+'/bi/native/'+u(x.native_asset_id)}">${esc(x.asset?.name||x.native_asset_id)}<span>编辑与回滚 →</span></a>`).join('')}</details></div>`:''}${activeUploads.length?`<div class="panel" style="margin-top:22px"><h2>上传与结构扫描</h2>${activeUploads.map(x=>`<a class="project-pending" href="${projectPath(project.id)+'/data/import-job/'+u(x.job_id)}">${esc(x.files.map(f=>f.name).join('、'))}<span>${esc(x.status)} · ${s(x.completed_sheets)}/${s(x.total_sheets)} 张表</span></a>`).join('')}</div>`:''}${activePublications.length?`<div class="panel" style="margin-top:22px"><div class="section-row"><h2>数据发布与 BI 注册</h2><button class="button button-small" data-project="refresh-catalog">刷新进度</button></div>${activePublications.map(x=>`<div class="project-pending"><span><b>${esc(x.request?.name||'数据发布')}</b><small> · ${esc(({queued:'排队中',running:'后台处理中',prepared:'数据已保存，待注册 BI',failed:'失败'})[x.status]||x.status)} · ${esc(x.stage)} · 尝试 ${s(x.attempts)} 次</small>${x.error?`<small class="muted">原因：${esc(x.error)}</small>`:''}</span><div>${['failed','prepared'].includes(x.status)?`<button class="button button-small" data-project="retry-publication" data-job="${esc(x.job_id)}">重新完成发布</button>`:''}</div></div>`).join('')}</div>`:''}${pending.length?`<div class="panel" style="margin-top:22px"><h2>待完成解析 ${pending.length}</h2>${pending.map(x=>`<a class="project-pending" href="${projectPath(project.id)+'/data/import/'+u(x.import_id)}">${esc(x.filename)}<span>${s(x.candidate_count)} 个候选区域 · 继续整理</span></a>`).join('')}</div>`:''}`);
+    ctx.root.innerHTML=frame('数据管理',`<div class="panel"><div class="section-row"><h2>项目数据资产</h2>${makeLink('＋ 上传新数据',projectPath(project.id)+'/data/import',true)}</div><p class="muted small">可按资产名称、源文件和真实字段查询整个项目；删除将资产移入可恢复的回收站。</p><div id="tp-asset-catalog"></div></div>${nativeAssets.length?`<div class="panel" style="margin-top:22px"><details><summary>派生编辑版本（高级）</summary>${nativeAssets.map(x=>`<a class="project-pending" href="${projectPath(project.id)+'/bi/native/'+u(x.native_asset_id)}">${esc(x.asset?.name||x.native_asset_id)}<span>编辑与回滚 →</span></a>`).join('')}</details></div>`:''}${activeUploads.length?`<div class="panel" style="margin-top:22px"><h2>上传与结构扫描</h2>${activeUploads.map(x=>`<a class="project-pending" href="${projectPath(project.id)+'/data/import-job/'+u(x.job_id)}">${esc(x.files.map(f=>f.name).join('、'))}<span>${esc(x.status)} · ${s(x.completed_sheets)}/${s(x.total_sheets)} 张表</span></a>`).join('')}</div>`:''}${activePublications.length?`<div class="panel" style="margin-top:22px"><div class="section-row"><h2>数据发布与 BI 注册</h2><button class="button button-small" data-project="refresh-catalog">刷新进度</button></div>${activePublications.map(x=>`<div class="project-pending"><span><b>${esc(x.request?.name||'数据发布')}</b><small> · ${esc(({queued:'排队中',running:'后台处理中',prepared:'数据已保存，待注册 BI',failed:'失败'})[x.status]||x.status)} · ${esc(x.stage)} · 尝试 ${s(x.attempts)} 次</small>${x.error?`<small class="muted">原因：${esc(x.error)}</small>`:''}</span><div>${['failed','prepared'].includes(x.status)?`<button class="button button-small" data-project="retry-publication" data-job="${esc(x.job_id)}">重新完成发布</button>`:''}</div></div>`).join('')}</div>`:''}${pending.length?`<div class="panel" style="margin-top:22px"><h2>待完成解析 ${pending.length}</h2>${pending.map(x=>`<a class="project-pending" href="${projectPath(project.id)+'/data/import/'+u(x.import_id)}">${esc(x.filename)}<span>${s(x.candidate_count)} 个候选区域 · 继续整理</span></a>`).join('')}</div>`:''}`);
+    window.TimePilotAssetCatalog?.mount(ctx,project.id);
   }
   async function dataCatalogAsset(aid){
     const base='/'+u(project.id)+'/catalog/assets/'+u(aid);
+    const summary=await api(base);
+    if(summary.requires_restore){
+      ctx.root.innerHTML=frame('回收站资产',`<div class="panel"><h2>资产已移入回收站</h2><p>恢复后才能打开原生 BI。原文件与版本记录仍然保留。</p><button type="button" class="button button-primary" data-project="restore-catalog" data-asset="${esc(aid)}" data-revision="${summary.lifecycle.revision}">恢复数据资产</button></div>`);
+      return;
+    }
     const [schema,versions,quality,integrity,impact]=await Promise.all([
       api(base+'/schema'),api(base+'/versions'),api(base+'/quality'),
       api(base+'/integrity'),api(base+'/impact')]);
@@ -66,13 +49,20 @@
     const statusName={passed:'质量检查通过',warning:'存在需核实项',blocked:'存在质量阻断项',unchecked:'尚未执行质量检查'};
     const items=(quality.issues||[]).map(x=>`<div class="project-pending"><span><b>${esc(x.rule)}</b><small>　${s(x.affected_count)} 条记录 · ${esc(x.severity)} · ${esc(x.status)}</small><small>　源文件行号：${(x.sample_rows||[]).map(s).join('、')||'见完整检查报告'}</small></span>${x.status==='open'?`<button class="button button-small" data-project="quality-decision" data-issue="${esc(x.issue_id)}">记录处理意见</button>`:''}</div>`).join('');
     const fields=allCols.map(f=>`<tr data-profile-search="${esc(String(f.name).toLowerCase())}"><td><strong>${esc(f.name)}</strong></td><td>${esc(f.physical_type||f.inferred_type||'待确定')}</td><td>${esc(f.source_cell||'—')}</td><td>${f.nonempty_count===undefined?'抽样分析':(Number((1-(f.missing_fraction||0))*100).toFixed(1)+'%')}</td></tr>`).join('');
-    ctx.root.innerHTML=frame('数据资产详情',`<div class="panel"><div class="section-row"><div><h2>${esc(schema.name)}</h2><p class="muted">${s(schema.rows)} 行 · ${allCols.length} 列 · 版本 ${esc((schema.version_id||'').slice(0,12))}</p></div><div class="action-row">${makeLink('打开正式 BI',projectPath(project.id)+'/bi/native/'+u(versions.versions[0]?.native_asset_id||''),true)}<button class="button" data-project="rename-catalog" data-asset="${esc(aid)}">修改名称</button></div></div><p class="muted small">数据版本固定；重命名只更改目录名称，不重新生成内容。</p></div>
-      <div class="project-tabs" style="margin-top:12px"><a href="#tp-catalog-fields">字段</a><a href="#tp-catalog-quality">质量</a><a href="#tp-catalog-history">版本与使用</a></div>
+    ctx.root.innerHTML=frame('数据资产详情',`<div class="panel"><div class="section-row"><div><h2>${esc(schema.name)}</h2><p class="muted">${s(schema.rows)} 行 · ${allCols.length} 列 · 版本 ${esc((schema.version_id||'').slice(0,12))}</p></div><div class="action-row">${makeLink('打开正式 BI',projectPath(project.id)+'/bi/native/'+u(versions.versions[0]?.native_asset_id||''),true)}<button class="button" data-project="rename-catalog" data-asset="${esc(aid)}">修改名称</button><button class="button" data-project="trash-catalog" data-asset="${esc(aid)}" data-revision="${summary.lifecycle.revision}">移入回收站</button></div></div><p class="muted small">数据版本固定；重命名只更改目录名称，不重新生成内容。</p></div>
+      <div class="project-tabs" style="margin-top:12px"><a href="#tp-catalog-preview">数据预览</a><a href="#tp-catalog-fields">字段</a><a href="#tp-catalog-quality">质量</a><a href="#tp-catalog-history">版本与使用</a></div>
+      <section class="panel" id="tp-catalog-preview"><h2>前 20 行真实记录</h2><p class="muted small">完整数据请进入 Perspective；这里不会以样本冒充全表。</p><div id="tp-asset-preview"><p class="muted">正在读取源版本…</p></div></section>
       <section class="panel" id="tp-catalog-fields"><h2>字段结构</h2><p class="muted small">源列顺序与名称保持不变，未确认的业务含义不会自动改名。</p><input id="tp-field-search" placeholder="搜索字段名称"><div class="table-wrap"><table class="data-table"><thead><tr><th>源字段</th><th>类型</th><th>原始表头单元格</th><th>完整率</th></tr></thead><tbody>${fields}</tbody></table></div></section>
       <section class="panel" id="tp-catalog-quality" style="margin-top:16px"><div class="section-row"><h2>数据质量 · ${esc(statusName[quality.status]||quality.status)}</h2><button class="button" data-project="quality-run" data-asset="${esc(aid)}">按已保存规则重新检查</button></div><p class="muted small">按实际发布数据全量检查；源文件不修改。重要问题处理需填写说明并留存审计。</p>
        ${items||'<p class="muted">没有未处理的质量问题，或尚未执行检查。</p>'}
        <details><summary>配置检查规则（高级）</summary><form id="project-quality-form" data-asset="${esc(aid)}" class="form"><h3>必填字段</h3><div class="grid grid-3">${allCols.map(f=>`<label class="check-row"><input type="checkbox" data-quality-required value="${esc(f.name)}" ${required.includes(f.name)?'checked':''}>${esc(f.name)}</label>`).join('')}</div><label class="field"><span>唯一键（多个列名用英文逗号分隔，可留空）</span><input name="unique_key" placeholder="例如 设备编号,采集时间"></label><label class="field"><span>必填字段允许的最大缺失比例</span><input name="max_missing_fraction" type="number" value="0" step="0.01" min="0" max="1"></label><div class="grid grid-3"><label class="field"><span>时间字段（可选）</span><select name="time_field"><option value="">不启用时间规则</option>${allCols.map(f=>`<option value="${esc(f.name)}" ${schema.roles?.time===f.name?'selected':''}>${esc(f.name)}</option>`).join('')}</select></label><label class="field"><span>设备或批次字段（可选）</span><select name="entity_field"><option value="">单个时间序列</option>${allCols.map(f=>`<option value="${esc(f.name)}" ${schema.roles?.entity===f.name?'selected':''}>${esc(f.name)}</option>`).join('')}</select></label><label class="field"><span>最大采样缺口（秒，可留空）</span><input name="max_gap_seconds" type="number" min="1" step="any" placeholder="例如 120"></label></div><label class="check-row"><input name="require_monotonic" type="checkbox"> 按源文件顺序检查时间单调性，逆序时阻断建模</label><button class="button button-primary" type="submit">保存规则并重新检查</button></form></details></section>
       <section class="panel" id="tp-catalog-history" style="margin-top:16px"><h2>版本、使用与存储</h2><p>已登记 ${s(versions.versions.length)} 个内容版本 · ${integrity.all_valid?'文件完整性校验通过':'发现文件缺失或损坏'}</p><div class="project-pending">下游：${impact.versions.reduce((n,v)=>n+(v.views?.length||0),0)} 个 BI 视图 · ${impact.versions.reduce((n,v)=>n+(v.models?.length||0),0)} 个建模任务</div>${versions.versions.map(v=>`<div class="project-pending"><span>版本 ${esc(v.version_id.slice(0,12))} · ${s(v.row_count)} 行 × ${s(v.column_count)} 列</span><span>${esc(v.created_at||'')}</span></div>`).join('')}</section>`);
+    const area=document.getElementById('tp-asset-preview');
+    if(area)api(base+'/preview?limit=20').then(data=>{
+      if(!area.isConnected)return;
+      const rows=data.rows||[],fields=data.columns||allCols.map(x=>x.name);
+      area.innerHTML=rows.length?`<div class="table-wrap"><table class="data-table"><thead><tr>${fields.map(x=>`<th>${esc(x)}</th>`).join('')}</tr></thead><tbody>${rows.map(r=>`<tr>${fields.map(x=>`<td>${esc(r[x])}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`:empty('没有可展示的记录');
+    }).catch(e=>{if(area.isConnected)area.innerHTML=message('预览暂不可用：'+e.message)});
   }
 
   async function dataAsset(aid){
@@ -106,12 +96,45 @@
     if(!region)return;
     target.innerHTML='<p class="muted small">正在读取区域来源与原始记录…</p>';
     try{
-      const detail=await api('/'+u(project.id)+'/imports/'+u(importInfo.import_id)+'/regions/'+u(rid)+'/preview?limit=8');
+      const [detail,contract]=await Promise.all([
+        api('/'+u(project.id)+'/imports/'+u(importInfo.import_id)+'/regions/'+u(rid)+'/preview?limit=8'),
+        api('/'+u(project.id)+'/imports/'+u(importInfo.import_id)+'/regions/'+u(rid)+'/contract')]);
       if(importCurrentRegion!==rid || !document.getElementById('tp-import-region-preview'))return;
       const fields=region.fields||[];
       const pos=region.bbox?`${region.sheet}!${region.bbox.row_start}行/${region.bbox.col_start}列 — ${region.bbox.row_end}行/${region.bbox.col_end}列`:'源文件数据表';
-      target.innerHTML=`<div class="section-row"><div><h3>${esc(region.name)}</h3><p class="muted tiny">${esc(pos)} · ${s(region.row_count_estimate)} 行（结构估计） · ${s(fields.length)} 列 · 源表头 ${region.header_row?s(region.header_row)+' 行':'无表头'}</p></div><button class="button button-small" data-project="edit-import-region" data-region="${esc(rid)}">核实/修改表头</button></div><p class="muted small">以下字段名直接来自源文件；空白和重复表头保留原始位置，仅内部查询使用唯一别名。</p>${sourcePreview(detail.rows||[],fields)}<details class="tp-import-field-details"><summary>字段结构与来源单元格（${fields.length} 列）</summary><div class="table-wrap"><table class="data-table"><thead><tr><th>原始列</th><th>源字段名</th><th>内部查询列名</th></tr></thead><tbody>${fields.map(f=>`<tr><td>${esc(f.source_cell||('#'+(f.ordinal+1)))}</td><td>${esc(f.source_name||'(空白)')}</td><td>${esc(f.internal_alias)}</td></tr>`).join('')}</tbody></table></div></details>${(region.warnings||[]).map(x=>message(x)).join('')}`;
+      target.innerHTML=`<div class="section-row"><div><h3>${esc(region.name)}</h3><p class="muted tiny">${esc(pos)} · ${s(region.row_count_estimate)} 行（结构估计） · ${s(fields.length)} 列 · 源表头 ${region.header_row?s(region.header_row)+' 行':'无表头'}</p></div><button class="button button-small" data-project="edit-import-region" data-region="${esc(rid)}">核实/修改表头</button>${contract.review?.needs_review?`<button class="button button-primary button-small" data-project="accept-import-region" data-region="${esc(rid)}" ${contract.review.decision==='accepted'?'disabled':''}>${contract.review.decision==='accepted'?'结构已确认':'确认表结构'}</button>`:''}</div><p class="muted small">以下字段名直接来自源文件；空白和重复表头保留原始位置，仅内部查询使用唯一别名。</p>${sourcePreview(detail.rows||[],fields)}<details class="tp-import-field-details"><summary>字段结构与来源单元格（${fields.length} 列）</summary><div class="table-wrap"><table class="data-table"><thead><tr><th>原始列</th><th>源字段名</th><th>内部查询列名</th></tr></thead><tbody>${fields.map(f=>`<tr><td>${esc(f.source_cell||('#'+(f.ordinal+1)))}</td><td>${esc(f.source_name||'(空白)')}</td><td>${esc(f.internal_alias)}</td></tr>`).join('')}</tbody></table></div></details>${(region.warnings||[]).map(x=>message(x)).join('')}`;
     }catch(err){target.innerHTML=message(err.message)}
+  }
+  async function refreshImportSummary(iid,jobId=null){
+    const slot=document.getElementById('tp-import-summary');if(!slot)return;
+    const route=location.pathname;
+    try{
+      const data=await api('/'+u(project.id)+'/imports/'+u(iid)+'/summary');
+      if(!document.getElementById('tp-import-summary')||location.pathname!==route)return;
+      const summaries=data.summaries||[];
+      const pending=(data.regions||[]).filter(r=>r.status!=='ready');
+      slot.innerHTML=`<div class="section-row"><h3>数据摘要</h3><span class="muted small">${s(data.ready)} / ${s(data.region_count)} 张表已核实</span></div>
+        <div class="tp-import-summary-grid">${summaries.slice(0,12).map(r=>`<article class="tp-import-summary-card">
+          <b>${esc(r.source.sheet)} · ${esc(r.source.file_id.slice(0,7))}</b>
+          <strong>${s(r.shape.row_count)} 行 × ${s(r.shape.column_count)} 列</strong>
+          <p>${esc(r.summary_text)}</p>
+          <small>${esc(r.fields.slice(0,6).map(f=>f.source_name).join('、'))}${r.fields.length>6?'…':''}</small>
+          ${r.quality.warnings.length?`<small>待核实：${esc(r.quality.warnings.join('；'))}</small>`:''}
+          <button type="button" class="button button-small" data-project="select-import-region" data-region="${esc(r.region_id)}">查看字段证据</button></article>`).join('')}
+        ${summaries.length>12?`<p class="muted">其余 ${s(summaries.length-12)} 张表可在原始结构中逐张查看。</p>`:''}</div>
+        ${pending.length?`<p class="muted small">还有 ${s(pending.length)} 张表等待完整扫描；摘要计算不阻断数据发布。</p>`:''}`;
+      if(pending.length){
+        if(!jobId){const job=await api('/'+u(project.id)+'/imports/'+u(iid)+'/summary-jobs',post({region_ids:pending.map(x=>x.region_id)}));jobId=job.job_id;}
+        const job=await api('/'+u(project.id)+'/imports/'+u(iid)+'/summary-jobs/'+u(jobId));
+        if(job.status==='queued'||job.status==='running'){
+          const footer=document.createElement('p');footer.className='muted small';
+          footer.textContent=`正在扫描源表 ${job.completed}/${job.total}`;slot.append(footer);
+          summaryTimer=setTimeout(()=>refreshImportSummary(iid,jobId),1300);
+        }else if(job.status==='succeeded'){summaryTimer=setTimeout(()=>refreshImportSummary(iid),350);}
+        else{const footer=document.createElement('p');footer.className='helper warning';
+          footer.textContent='摘要扫描失败：'+job.error+'。原始发布流程仍可继续。';slot.append(footer);}
+      }
+    }catch(error){slot.textContent='无法读取统计摘要：'+error.message+'。可继续检查原始表结构和发布。';}
   }
   async function importDetail(iid){
     stop();importInfo=await api('/'+u(project.id)+'/imports/'+u(iid));
@@ -119,9 +142,9 @@
     const files=importCatalog.files||[];
     const tree=files.map((f,index)=>`<details class="tp-import-file" ${index===0?'open':''}><summary><strong>${esc(f.name)}</strong><small>${s(f.region_count)} 张数据表</small></summary>${f.worksheets.map(sheet=>`<div class="tp-import-sheet"><div class="tp-import-sheet-heading">${esc(sheet.sheet)} <small>${s(sheet.region_count)} 张子表</small></div>${sheet.regions.map(r=>`<div class="tp-import-region"><label><input type="checkbox" data-import-region value="${esc(r.region_id)}" checked aria-label="发布 ${esc(r.name)}"></label><button class="tp-import-region-open" data-project="select-import-region" data-region="${esc(r.region_id)}"><strong>${esc(r.name)}</strong><small>${esc(r.bbox?'行 '+r.bbox.row_start+'–'+r.bbox.row_end+' · 列 '+r.bbox.col_start+'–'+r.bbox.col_end:'来源 Schema')} · ${s(r.column_count)} 列</small></button>${r.needs_review?'<span class="badge review">待核实</span>':''}</div>`).join('')||'<p class="muted tiny">没有可发布表格</p>'}</div>`).join('')}</details>`).join('');
     const total=importCatalog.regions_total||0;
-    ctx.root.innerHTML=frame('数据结构与发布',`<div class="panel tp-import-heading"><div class="section-row"><div><h2>${esc(importInfo.filename)}</h2><p class="muted small">扫描完成：${s(files.length)} 个文件、${s(total)} 张数据表。字段保持原始名称与顺序。</p></div>${makeLink('返回项目数据',projectPath(project.id)+'/data')}</div><div class="tp-import-quick-actions"><button class="button button-small" data-project="select-all-import">全部选择</button><button class="button button-small" data-project="select-none-import">取消选择</button><button class="button button-small" data-project="explain-import">解释表结构（本地）</button><label class="check-row"><input id="tp-import-use-model" type="checkbox"> 启用已配置模型辅助说明</label></div><div id="tp-import-semantic-note"></div></div><div class="tp-import-review-grid"><div class="panel tp-import-tree"><h3>文件 / 工作表 / 子表</h3>${tree||empty('未发现数据表','请核实源文件和扫描日志。')}</div><div class="panel tp-import-preview-panel" id="tp-import-region-preview"><p class="muted">选择左侧的一张数据表查看原始字段与样例。</p></div></div>${(importCatalog.unassigned_regions||[]).length?`<div class="panel" style="margin-top:14px"><details><summary>未发布的说明及待核实区域 · ${s(importCatalog.unassigned_regions.length)}</summary>${importCatalog.unassigned_regions.map(x=>`<div class="project-pending">${esc(x.sheet)}：第 ${s(x.bbox?.row_start)} 行 · ${esc(x.reason||x.kind)}</div>`).join('')}</details></div>`:''}<div class="panel tp-import-batch-bar"><div class="section-row"><div><h3>发布数据表</h3><p class="muted small">每张子表生成独立且可追溯的正式 BI 数据版本；不自动合并表格。后台可安全重试。</p></div><button class="button button-primary" data-project="publish-import-batch">导入选中数据表并进入 BI</button></div><div id="tp-import-batch-progress" aria-live="polite"></div></div>`);
+    ctx.root.innerHTML=frame('数据结构与发布',`<div class="panel tp-import-heading"><div class="section-row"><div><h2>${esc(importInfo.filename)}</h2><p class="muted small">扫描完成：${s(files.length)} 个文件、${s(total)} 张数据表。字段保持原始名称与顺序。</p></div>${makeLink('返回项目数据',projectPath(project.id)+'/data')}</div><div class="tp-import-quick-actions"><button class="button button-small" data-project="select-all-import">全部选择</button><button class="button button-small" data-project="select-none-import">取消选择</button><button class="button button-small" data-project="explain-import">解释表结构（本地）</button><label class="check-row"><input id="tp-import-use-model" type="checkbox"> 启用已配置模型辅助说明</label></div><div id="tp-import-semantic-note"></div></div><div class="panel" id="tp-import-summary"><p class="muted">正在准备可追溯的数据摘要…</p></div><details class="tp-import-source-details"><summary>查看原始结构、表头与样本</summary><div class="tp-import-review-grid"><div class="panel tp-import-tree"><h3>文件 / 工作表 / 子表</h3>${tree||empty('未发现数据表','请核实源文件和扫描日志。')}</div><div class="panel tp-import-preview-panel" id="tp-import-region-preview"><p class="muted">选择左侧的一张数据表查看原始字段与样例。</p></div></div></details>${(importCatalog.unassigned_regions||[]).length?`<div class="panel" style="margin-top:14px"><details><summary>未发布的说明及待核实区域 · ${s(importCatalog.unassigned_regions.length)}</summary>${importCatalog.unassigned_regions.map(x=>`<div class="project-pending">${esc(x.sheet)}：第 ${s(x.bbox?.row_start)} 行 · ${esc(x.reason||x.kind)}</div>`).join('')}</details></div>`:''}<div class="panel tp-import-batch-bar"><div class="section-row"><div><h3>发布数据表</h3><p class="muted small">每张子表生成独立且可追溯的正式 BI 数据版本；不自动合并表格。后台可安全重试。</p></div><button class="button button-primary" data-project="publish-import-batch">导入选中数据表并进入 BI</button></div><div id="tp-import-batch-progress" aria-live="polite"></div></div>`);
     const first=files.flatMap(f=>f.worksheets.flatMap(x=>x.regions))[0];
-    if(first)void showImportRegion(first.region_id);
+    void refreshImportSummary(iid);
     try{
       const batches=await api('/'+u(project.id)+'/imports/'+u(iid)+'/publish-batches');
       if(batches.batches?.length)void showPublishBatch(batches.batches[0].batch_id,false);
@@ -144,7 +167,10 @@
     const regions=chosenImportRegions();
     if(!regions.length)throw Error('请选择至少一张数据表');
     if(!confirm(`将选中的 ${regions.length} 张数据表分别发布到正式 BI？保留原始字段、原文件和独立版本。`))return;
-    const batch=await api('/'+u(project.id)+'/imports/'+u(importInfo.import_id)+'/publish-batch',post({region_ids:regions,confirm:true}));
+    const unassigned=importCatalog?.unassigned_regions||[];
+    const confirmUnassigned=unassigned.length>0;
+    if(confirmUnassigned&&!confirm(`当前原文件还有 ${unassigned.length} 个未归属的非空区域，可能未能包含全部数据。已检查来源并确认仅发布当前选中区域？`))return;
+    const batch=await api('/'+u(project.id)+'/imports/'+u(importInfo.import_id)+'/publish-batch',post({region_ids:regions,confirm:true,confirm_unassigned:confirmUnassigned}));
     ctx.toast('批量发布已提交，后台继续执行');
     await showPublishBatch(batch.batch_id,true);
   }
@@ -184,8 +210,9 @@
        route:'/bi/native/'+u(aid)+(viewId?'/view/'+u(viewId):'')});
   }
   async function render(context){
-    stop();ctx=context;const parts=location.pathname.split('/').filter(Boolean);
+    stop();window.TimePilotAssetCatalog?.stop();ctx=context;const parts=location.pathname.split('/').filter(Boolean);
     if(parts[2]!=='bi'||parts[3]==='native')await window.TimePilotProjectBI?.dispose?.();
+    if(parts[2]!=='features')window.TimePilotFeatureV2UI?.dispose?.();
     if(parts.length<2)return allProjects();
     project=(await api('/'+u(parts[1]))).project;
     const action=parts[2]||'';
@@ -199,6 +226,11 @@
     }
     if(action==='bi'&&parts[3]==='native'&&parts[4])return nativeEditablePage(parts[4],parts[5]==='view'?parts[6]:null);
     if(action==='bi'&&parts[3])return biPage(parts[3]);
+    if(action==='features'){
+      ctx.root.innerHTML=frame('特征工程','<div id="tp-feature-lab" aria-live="polite"></div>');
+      if(new URLSearchParams(location.search).get('legacy')==='1')return window.TimePilotFeatureLabUI?.render(ctx,project.id);
+      return window.TimePilotFeatureV2UI?.render(ctx,project.id,parts[3]||'profile');
+    }
     if(action==='models')return models();
     if(action==='tasks')return tasks();
     ctx.root.innerHTML=message('页面不存在');
@@ -226,6 +258,20 @@
         await api('/'+u(project.id)+'/catalog/assets/'+u(aid),
                   {method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})});
         await dataCatalogAsset(aid);
+      }
+      else if(action==='trash-catalog'||action==='restore-catalog'){
+        const aid=el.dataset.asset,rev=Number(el.dataset.revision);
+        const requested=action==='trash-catalog'?'trash':'restore';
+        if(requested==='trash'){
+          const impact=await api('/'+u(project.id)+'/catalog/assets/'+u(aid)+'/impact');
+          if(impact.active_blockers?.length)throw Error('运行中的任务引用了该资产，无法回收');
+          if(!confirm(`移入回收站？已发现 ${impact.dependencies?.length||0} 项历史引用。此操作不会删除源文件。`))return true;
+        }
+        await api('/'+u(project.id)+'/catalog/assets/'+u(aid)+'/'+requested,post({
+          request_id:crypto.randomUUID(),expected_revision:rev,confirm:true}));
+        ctx.toast(requested==='trash'?'数据资产已移入回收站':'数据资产已恢复');
+        if(requested==='trash')ctx.navigate(projectPath(project.id)+'/data');
+        else await dataCatalogAsset(aid);
       }
       else if(action==='refresh-catalog'){await dataPage();}
       else if(action==='retry-publication'){
@@ -270,6 +316,12 @@
         const result=await api('/'+u(project.id)+'/imports/'+u(importInfo.import_id)+'/semantic-explain',post({
           use_model:!!document.getElementById('tp-import-use-model')?.checked}));
         if(slot)slot.innerHTML=`<div class="helper"><strong>表结构说明</strong><p>${esc(result.summary)}</p>${(result.semantic_notes||[]).map(n=>`<p class="muted tiny">${esc(n.note)}</p>`).join('')}${result.model_status==='fallback'?'<small>模型调用失败，已保留本地结构扫描结果。</small>':''}</div>`;
+      }
+      else if(action==='accept-import-region'){
+        const rid=el.dataset.region;
+        if(!confirm('已核对该区域的表头、边界、原始字段和原始记录。确认将当前结构用于发布？'))return true;
+        await api('/'+u(project.id)+'/imports/'+u(importInfo.import_id)+'/regions/'+u(rid)+'/review',post({decision:'accepted',confirmed:true,reason:'已核对表头、列顺序、边界与原始样本'}));
+        ctx.toast('已记录当前源指纹的人工结构确认');await showImportRegion(rid);
       }
       else if(action==='edit-import-region'){
         const rid=el.dataset.region;
@@ -325,11 +377,6 @@
     }catch(e){ctx.toast('操作失败：'+e.message)}finally{if(submitter)submitter.disabled=false;}return true;
   }
   function change(event){
-    if(event.target.id==='tp-asset-search'){
-      const q=event.target.value.trim().toLowerCase();
-      document.querySelectorAll('[data-project-catalog-row]').forEach(row=>row.hidden=!row.textContent.toLowerCase().includes(q));
-      return true;
-    }
     if(event.target.id==='tp-field-search'){
       const q=event.target.value.trim().toLowerCase();
       document.querySelectorAll('[data-profile-search]').forEach(row=>row.hidden=!row.dataset.profileSearch.includes(q));

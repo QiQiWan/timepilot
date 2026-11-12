@@ -90,7 +90,7 @@ def test_standalone_launcher_does_not_provision_env():
     launcher = (ROOT/'scripts/launcher.py').read_text()
     ensure = (ROOT/'scripts/ensure_native_bi.py').read_text()
     assert 'exec python ' in shell
-    assert "'--auto-build'" in launcher
+    assert "'--status-only'" in launcher and "'--auto-build'" not in launcher
     assert "'TIMEPILOT_SKIP_NPM_INSTALL'" in ensure
     forbidden = ('conda create', 'python -m venv', 'pip install', 'npm install')
     for text in (shell, launcher):

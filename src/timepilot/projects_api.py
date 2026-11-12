@@ -18,11 +18,37 @@ from timepilot.smart_import import SmartImportError
 from timepilot.project_publish_batches import ProjectPublishBatches, BatchPublishRequest
 from timepilot.import_tool_registry import ImportToolRegistry
 from timepilot.import_semantics import build_import_catalog, ImportSemanticAssistant
+from timepilot.import_summary import ImportSummaryService, SummaryIntegrityError
+from timepilot.import_data_contract import ImportDataContracts
 from timepilot.project_region_catalog import ProjectRegionDirectory
 from timepilot.smart_workbench import SaveView, DraftOptions
 from timepilot.contracts import TaskSpec
 from timepilot.industrial_bi import IndustrialBI, IndustrialSpec, SaveIndustrialView, IndustrialBIError
 from timepilot.data import DataValidationError, get_dataset
+from timepilot.asset_lifecycle import AssetLifecycle, AssetLifecycleConflict, AssetLifecycleError
+from timepilot.enterprise_security import SecurityError
+from timepilot.native_bi import QuerySpec, NativeBIDependencyError
+
+
+class AssetLifecycleRequest(BaseModel):
+    model_config=ConfigDict(extra='forbid')
+    request_id:str=Field(min_length=8,max_length=100)
+    expected_revision:int|None=Field(default=None,ge=0)
+    reason:str=Field(default='',max_length=500)
+    confirm:bool=False
+
+
+class SummaryJobRequest(BaseModel):
+    model_config=ConfigDict(extra='forbid')
+    region_ids:list[str]|None=None
+    refresh:bool=False
+
+
+class RegionReviewRequest(BaseModel):
+    model_config=ConfigDict(extra='forbid')
+    decision:str
+    reason:str=Field(default='',max_length=500)
+    confirmed:bool=False
 
 
 class RegionLayoutUpdate(BaseModel):
@@ -66,18 +92,26 @@ def create_projects_router(catalog: ProjectCatalog, understanding, native=None, 
     inspector=WorkbookIntelligence(catalog.imports)
     generic=GenericAssetStore(catalog.imports)
     platform=DataPlatform(catalog,native,generic)
+    lifecycle=AssetLifecycle(catalog,platform)
     publisher=ProjectPublication(catalog,native,platform=platform,generic=generic)
     industrial=IndustrialBI(catalog,native)
     batches=ProjectPublishBatches(catalog,publication_jobs) if publication_jobs is not None else None
     import_tools=ImportToolRegistry(catalog)
     region_directory=ProjectRegionDirectory(catalog)
     import_semantics=ImportSemanticAssistant(import_tools,getattr(understanding,'gateway',None))
+    summary_service=ImportSummaryService(catalog)
+    contracts=ImportDataContracts(catalog,summary_service)
     router = APIRouter(prefix='/api/v1/projects',tags=['Projects'])
 
     def fail(exc):
+        if isinstance(exc,SecurityError):raise HTTPException(status_code=exc.code,detail=str(exc)) from exc
+        if isinstance(exc,AssetLifecycleConflict):raise HTTPException(status_code=409,detail=str(exc)) from exc
+        if isinstance(exc,NativeBIDependencyError):raise HTTPException(status_code=503,detail=str(exc)) from exc
         if isinstance(exc,KeyError):
             raise HTTPException(status_code=404, detail=str(exc)) from exc
-        if isinstance(exc,(ProjectError,SmartImportError,DataValidationError,IndustrialBIError,ValueError)):
+        if isinstance(exc,SummaryIntegrityError):
+            raise HTTPException(status_code=409,detail=str(exc)) from exc
+        if isinstance(exc,(ProjectError,SmartImportError,DataValidationError,IndustrialBIError,AssetLifecycleError,ValueError)):
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         raise exc
 
@@ -275,6 +309,59 @@ def create_projects_router(catalog: ProjectCatalog, understanding, native=None, 
             manifest=catalog.require_import(pid,iid)
             indexed=region_directory.sync(pid,manifest)
             return {**build_import_catalog(manifest),'directory':indexed}
+        except Exception as exc:fail(exc)
+
+    @router.get('/{pid}/imports/{iid}/summary')
+    def import_summary(pid:str,iid:str):
+        try:
+            status=summary_service.cache_status(pid,iid)
+            with catalog._db() as db:
+                rows=db.execute('''SELECT region_id,summary_json FROM import_region_summaries
+                    WHERE project_id=? AND import_id=?''',(pid,iid)).fetchall()
+            ready={x['region_id'] for x in status['regions'] if x['status']=='ready'}
+            return {**status,'summaries':[json.loads(r['summary_json']) for r in rows if r['region_id'] in ready]}
+        except Exception as exc:fail(exc)
+
+    @router.get('/{pid}/imports/{iid}/regions/{rid}/summary')
+    def region_summary(pid:str,iid:str,rid:str):
+        try:
+            status=summary_service.cache_status(pid,iid)
+            known=next((r for r in status['regions'] if r['region_id']==rid),None)
+            if known is None:raise KeyError('区域不存在')
+            if known['status']=='mismatch':raise HTTPException(409,detail='源文件校验失败，请修复或重新导入原文件')
+            if known['status']!='ready':raise HTTPException(409,detail='区域摘要尚未生成；请创建摘要任务')
+            return summary_service.summarize_region(pid,iid,rid)
+        except HTTPException:raise
+        except Exception as exc:fail(exc)
+
+    @router.post('/{pid}/imports/{iid}/summary-jobs',status_code=202)
+    def create_summary_job(pid:str,iid:str,payload:SummaryJobRequest):
+        try:return summary_service.submit_job(pid,iid,region_ids=payload.region_ids,refresh=payload.refresh)
+        except Exception as exc:fail(exc)
+
+    @router.get('/{pid}/imports/{iid}/summary-jobs/{jid}')
+    def summary_job(pid:str,iid:str,jid:str):
+        try:return summary_service.job(pid,iid,jid)
+        except Exception as exc:fail(exc)
+
+    @router.post('/{pid}/imports/{iid}/summary-jobs/{jid}/retry')
+    def retry_summary_job(pid:str,iid:str,jid:str):
+        try:return summary_service.retry_job(pid,iid,jid)
+        except Exception as exc:fail(exc)
+
+    @router.post('/{pid}/imports/{iid}/summary-jobs/{jid}/cancel')
+    def cancel_summary_job(pid:str,iid:str,jid:str):
+        try:return summary_service.cancel_job(pid,iid,jid)
+        except Exception as exc:fail(exc)
+
+    @router.get('/{pid}/imports/{iid}/regions/{rid}/contract')
+    def import_region_contract(pid:str,iid:str,rid:str):
+        try:return contracts.contract(pid,iid,rid)
+        except Exception as exc:fail(exc)
+
+    @router.post('/{pid}/imports/{iid}/regions/{rid}/review')
+    def review_import_region(pid:str,iid:str,rid:str,request:RegionReviewRequest):
+        try:return contracts.review(pid,iid,rid,request.decision,request.reason,confirmed=request.confirmed)
         except Exception as exc:fail(exc)
 
     @router.get('/{pid}/imports/{iid}/regions/{rid}/preview')
@@ -478,9 +565,68 @@ def create_projects_router(catalog: ProjectCatalog, understanding, native=None, 
         except Exception as exc:fail(exc)
 
     @router.get('/{pid}/catalog/assets')
-    def unified_assets(pid:str):
-        try:return {'project_id':pid,'assets':platform.list_assets(pid)}
+    def unified_assets(pid:str,q:str='',state:str='active',sort:str='updated_desc',page:int=1,page_size:int=30):
+        try:
+            result=lifecycle.search(pid,q=q,state=state,sort=sort,page=page,page_size=page_size)
+            # Compatibility for existing callers expecting a flat list.
+            return {'project_id':pid,**result,'assets':result['items']}
         except Exception as exc:fail(exc)
+
+    @router.get('/{pid}/catalog/asset-trash')
+    def asset_trash(pid:str,q:str='',page:int=1,page_size:int=30):
+        try:return lifecycle.list_trash(pid,q=q,page=page,page_size=page_size)
+        except Exception as exc:fail(exc)
+
+    @router.get('/{pid}/catalog/assets/{aid}')
+    def catalog_asset_info(pid:str,aid:str):
+        try:
+            state=lifecycle.status(pid,aid)
+            if state['state']=='trashed':
+                return {'lifecycle':state,'requires_restore':True}
+            schema=platform.schema(pid,aid)
+            versions=platform.versions(pid,aid)
+            return {'lifecycle':state,'asset':schema,'versions':versions,
+                    'open_url':'/projects/'+pid+'/bi/native/'+(versions[0]['native_asset_id'] if versions else '')}
+        except Exception as exc:fail(exc)
+
+    @router.get('/{pid}/catalog/assets/{aid}/preview')
+    def catalog_asset_preview(pid:str,aid:str,limit:int=20,offset:int=0,version_id:str|None=None):
+        try:
+            if not 1<=limit<=1000 or not 0<=offset<=2000000:raise ValueError('分页范围无效')
+            schema=platform.schema(pid,aid,version_id)
+            versions=platform.versions(pid,aid)
+            selected=next((v for v in versions if v['version_id']==schema['version_id']),None)
+            if selected is None:raise KeyError('没有这个资产版本')
+            catalog.require_generic(pid,selected['native_asset_id'])
+            if native is None:raise NativeBIDependencyError('原生 BI 未配置')
+            return native.query(QuerySpec(asset_id=selected['native_asset_id'],
+                version_id='base',limit=limit,offset=offset))
+        except Exception as exc:fail(exc)
+
+    @router.get('/{pid}/catalog/assets/{aid}/lifecycle')
+    def asset_status(pid:str,aid:str):
+        try:return lifecycle.status(pid,aid)
+        except Exception as exc:fail(exc)
+
+    @router.post('/{pid}/catalog/assets/{aid}/trash')
+    def trash_asset(pid:str,aid:str,body:AssetLifecycleRequest):
+        try:return lifecycle.change(pid,aid,'trash',request_id=body.request_id,
+                    expected_revision=body.expected_revision,reason=body.reason,confirm=body.confirm)
+        except Exception as exc:fail(exc)
+
+    @router.post('/{pid}/catalog/assets/{aid}/restore')
+    def restore_asset(pid:str,aid:str,body:AssetLifecycleRequest):
+        try:return lifecycle.change(pid,aid,'restore',request_id=body.request_id,
+                    expected_revision=body.expected_revision)
+        except Exception as exc:fail(exc)
+
+    @router.post('/{pid}/catalog/assets/{aid}/purge')
+    def purge_asset(pid:str,aid:str,body:AssetLifecycleRequest):
+        # Data retention is managed by the privileged storage subsystem. A
+        # generic editor must not delete shared Parquet or original uploads.
+        try:lifecycle.status(pid,aid)
+        except Exception as exc:fail(exc)
+        raise HTTPException(409,detail='尚无管理员物理清理执行器；数据保留在可恢复回收站中')
 
     @router.get('/{pid}/catalog/assets/{aid}/versions')
     def unified_versions(pid:str,aid:str):
@@ -546,7 +692,7 @@ def create_projects_router(catalog: ProjectCatalog, understanding, native=None, 
 
     @router.get('/{pid}/catalog/assets/{aid}/impact')
     def impact(pid:str,aid:str):
-        try:return platform.impact(pid,aid)
+        try:return lifecycle.impact(pid,aid)
         except Exception as exc:fail(exc)
 
     @router.get('/{pid}/catalog/assets/{aid}/integrity')
@@ -664,7 +810,18 @@ def create_projects_router(catalog: ProjectCatalog, understanding, native=None, 
     def editable_list(pid:str):
         try:
             output=[]
-            for x in catalog.native_for(pid):
+            linked={x['native_asset_id']:{**x,'kind':'editable_snapshot'} for x in catalog.native_for(pid)}
+            # Source-faithful generic tables were published directly to native BI;
+            # they must also be discoverable for multi-table analysis. Only project-
+            # linked assets enter this list. Never fall back to a global native list.
+            for item in catalog.generic_for(pid):
+                try:catalog.require_generic(pid,item['native_asset_id'])
+                except KeyError:continue
+                linked.setdefault(item['native_asset_id'],{
+                    'native_asset_id':item['native_asset_id'],
+                    'source_asset_id':None,'created_at':item['created_at'],
+                    'kind':'generic_table','source_version_id':item['version_id']})
+            for x in linked.values():
                 try:output.append({**x,'asset':native.asset(x['native_asset_id'])})
                 except (KeyError,ValueError):output.append({**x,'missing':True})
             return output

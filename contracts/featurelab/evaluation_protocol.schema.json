@@ -1,0 +1,178 @@
+{
+  "$defs": {
+    "TaskSpecV2": {
+      "additionalProperties": false,
+      "properties": {
+        "task_spec_version": {
+          "const": 1,
+          "default": 1,
+          "title": "Task Spec Version",
+          "type": "integer"
+        },
+        "task_id": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Task Id",
+          "type": "string"
+        },
+        "mode": {
+          "default": "exploration",
+          "enum": [
+            "exploration",
+            "supervised"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "task_type": {
+          "default": "profile",
+          "enum": [
+            "profile",
+            "regression",
+            "binary_classification"
+          ],
+          "title": "Task Type",
+          "type": "string"
+        },
+        "entity_field_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Entity Field Ids",
+          "type": "array"
+        },
+        "prediction_time_field_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Prediction Time Field Id"
+        },
+        "label_field_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Label Field Id"
+        },
+        "label_time_field_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Label Time Field Id"
+        },
+        "label_available_at_field_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Label Available At Field Id"
+        },
+        "split_kind": {
+          "default": "time",
+          "enum": [
+            "time",
+            "grouped_time"
+          ],
+          "title": "Split Kind",
+          "type": "string"
+        },
+        "group_field_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Group Field Ids",
+          "type": "array"
+        },
+        "n_splits": {
+          "default": 3,
+          "maximum": 10,
+          "minimum": 2,
+          "title": "N Splits",
+          "type": "integer"
+        },
+        "purge_rows": {
+          "default": 0,
+          "maximum": 100000,
+          "minimum": 0,
+          "title": "Purge Rows",
+          "type": "integer"
+        },
+        "metrics": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Metrics",
+          "type": "array"
+        }
+      },
+      "required": [
+        "task_id"
+      ],
+      "title": "TaskSpecV2",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "task": {
+      "$ref": "#/$defs/TaskSpecV2"
+    },
+    "set_id": {
+      "minLength": 1,
+      "title": "Set Id",
+      "type": "string"
+    },
+    "revision": {
+      "minimum": 1,
+      "title": "Revision",
+      "type": "integer"
+    },
+    "baseline": {
+      "const": "raw_numeric",
+      "default": "raw_numeric",
+      "title": "Baseline",
+      "type": "string"
+    },
+    "seed": {
+      "default": 42,
+      "title": "Seed",
+      "type": "integer"
+    },
+    "max_rows": {
+      "default": 500000,
+      "maximum": 2000000,
+      "minimum": 100,
+      "title": "Max Rows",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "task",
+    "set_id",
+    "revision"
+  ],
+  "title": "EvaluationProtocol",
+  "type": "object"
+}

@@ -1,107 +1,129 @@
-name: quality-check
+name: TimePilot source QA and offline release
 on:
   push:
   pull_request:
+  workflow_dispatch:
+
 jobs:
-  python-31212:
+  python-full:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
-      - name: Exact Python 3.12.12
+      - name: Use exact project Python
         run: uv python install 3.12.12
-      - name: Install single requirements.txt
+      - name: Install runtime and test dependencies
         run: uv pip install --python "$(uv python find 3.12.12)" -r requirements.txt
-      - name: Verify dependency contract and interpreter
+      - name: Check release source and dependency contract
         run: |
           $(uv python find 3.12.12) scripts/verify_installation.py --require-runtime
           $(uv python find 3.12.12) scripts/sync_requirements.py --check
-          $(uv python find 3.12.12) -m timepilot doctor --strict
-      - name: Unit, API, real DuckDB/Arrow integration
+          $(uv python find 3.12.12) scripts/verify_native_bi_release.py --require-python31212 --require-duckdb
+      - name: Full Python regression suite
         run: $(uv python find 3.12.12) -m pytest -q -rs
-      - name: Strict DuckDB/Arrow native BI gate
-        run: $(uv python find 3.12.12) scripts/verify_native_bi_release.py --require-python31212 --require-duckdb
-      - name: Verify P0 DataAsset and read-only view integration
-        run: $(uv python find 3.12.12) -m pytest -q tests/test_p0_data_assets_v090.py tests/test_ordered_perspective_session_v0512.py tests/test_unified_agent_v100.py
-      - name: Stage IV human-gold/evaluation and audited autonomous modeling
-        run: $(uv python find 3.12.12) -m pytest -q tests/test_research_stage4_v0110.py
-      - name: Compile and run deterministic forecasting smoke test
+      - name: PIT join, advanced budgets and fail-closed gating
+        run: $(uv python find 3.12.12) -m pytest -q tests/test_featurelab31_join_release.py tests/test_featurelab30_advanced.py
+      - name: Production-scale native calculations and recovery
         run: |
-          $(uv python find 3.12.12) -m compileall -q src/timepilot
-          TIMEPILOT_HOME=./runtime $(uv python find 3.12.12) -m timepilot demo
+          $(uv python find 3.12.12) scripts/accept_production_recovery.py --rows 1000000 --out reports/production_recovery_1m.json
+          $(uv python find 3.12.12) scripts/benchmark_native_bi.py --rows 100000 1000000 --repeats 3 --concurrency 2 --out reports/production_native_bi_benchmark.json
+      - name: Preserve runtime QA evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: timepilot-v031-python-evidence
+          path: reports/
+          if-no-files-found: warn
 
-  native-bi-frontend:
+  advanced-real-algorithms:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Install exact Python and real optional algorithm packages
+        run: |
+          uv python install 3.12.12
+          uv pip install --python "$(uv python find 3.12.12)" -r requirements.txt -r requirements-featurelab-advanced.txt
+      - name: Fail if either actual package is unavailable
+        run: $(uv python find 3.12.12) -c "import tsfresh, featuretools; print('Real optional packages imported')"
+      - name: Execute genuine tsfresh and Featuretools integration tests
+        run: $(uv python find 3.12.12) -m pytest -q tests/test_featurelab30_optional_engines.py tests/test_featurelab30_advanced.py tests/test_featurelab31_join_release.py
+
+  native-bi-pinned-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/native-bi/package-lock.json
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Verify source-only release without installing forecasting packages
-        run: python scripts/verify_installation.py --source-only
-      - name: Resolve lockfile on build host if missing (source bootstrap only)
+      - name: Enforce committed dependency lock
         run: |
-          cd frontend/native-bi
-          if [ ! -f package-lock.json ]; then
-            echo 'WARNING: package-lock.json absent from source. Generating build-specific lock; commit the artifact to pin future releases.'
-            npm install --package-lock-only --ignore-scripts --no-audit --no-fund
-          fi
-          npm ci --no-audit --no-fund
-      - name: Build pinned Perspective offline assets
-        run: python scripts/build_native_bi.py
-      - name: Perspective workspace unit tests
+          test -s frontend/native-bi/package-lock.json || {
+            echo 'BLOCKED: commit verified package-lock.json from an authorized build host' >&2
+            exit 2
+          }
+          cd frontend/native-bi && npm ci --no-audit --no-fund
+      - name: Run complete Node test suite
         working-directory: frontend/native-bi
-        run: npm run test
-      - name: Verify built JS/CSS/WASM and their SHA256 manifest
-        run: python scripts/verify_native_bi_release.py --require-build
-      - name: Complete compiled offline release (no runtime npm)
-        run: python scripts/package_timepilot.py --with-native-bundle --output TimePilot_v0.11.0_FULL_OFFLINE.zip
-      - name: Publish compiled artifacts to the CI run
+        run: npm test
+      - name: Build and verify actual Perspective JS/WASM
+        run: |
+          python scripts/build_native_bi.py
+          python scripts/verify_native_bi_release.py --require-build --require-source-current
+      - name: Produce installable offline distribution
+        run: python scripts/package_timepilot.py --with-native-bundle --output TimePilot_v0.31.0_FULL_OFFLINE.zip
+      - name: Upload complete distribution and bundle
         uses: actions/upload-artifact@v4
         with:
-          name: timepilot-perspective-v0110-assets
+          name: timepilot-v031-runtime
           path: |
             src/timepilot/static/native-bi/
             frontend/native-bi/package-lock.json
-            TimePilot_v0.11.0_FULL_OFFLINE.zip
+            TimePilot_v0.31.0_FULL_OFFLINE.zip
           if-no-files-found: error
 
   native-bi-real-browser:
-    needs: [python-31212, native-bi-frontend]
+    needs: [python-full, advanced-real-algorithms, native-bi-pinned-build]
     runs-on: ubuntu-latest
     timeout-minutes: 80
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-      - name: Use exact Python runtime
-        run: uv python install 3.12.12
-      - name: Install Python dependencies in selected interpreter
-        run: uv pip install --python "$(uv python find 3.12.12)" -r requirements.txt
-      - name: Restore checked Perspective bundle
+      - name: Use exact Python and install test dependencies
+        run: |
+          uv python install 3.12.12
+          uv pip install --python "$(uv python find 3.12.12)" -r requirements.txt
+      - name: Restore exactly verified native bundle
         uses: actions/download-artifact@v4
         with:
-          name: timepilot-perspective-v0110-assets
+          name: timepilot-v031-runtime
           path: .
-      - name: Verify source integrity and Python before browser integration
-        run: $(uv python find 3.12.12) scripts/verify_installation.py --require-runtime --integration --require-bundle
-      - name: Strict native BI release gate
-        run: $(uv python find 3.12.12) scripts/verify_native_bi_release.py --require-python31212 --require-duckdb --require-build --require-source-current --require-virtual-server
-      - name: Verify preinstalled Google Chrome (no browser download)
+      - name: Check runtime, bundle and virtual server
+        run: |
+          $(uv python find 3.12.12) scripts/verify_installation.py --require-runtime --integration --require-bundle
+          $(uv python find 3.12.12) scripts/verify_native_bi_release.py --require-python31212 --require-duckdb --require-build --require-source-current --require-virtual-server
+      - name: Enforce preinstalled Google Chrome
         run: $(uv python find 3.12.12) scripts/system_chrome.py --check
-      - name: Real Parquet, DuckDB, Perspective WebSocket and browser acceptance
-        run: $(uv python find 3.12.12) scripts/accept_native_bi_live.py
-      - name: Retain structured native BI acceptance report
+      - name: Real HTTPS browser / websocket verification
+        run: |
+          $(uv python find 3.12.12) scripts/accept_enterprise_browser.py --out reports/enterprise_browser_acceptance.json
+          $(uv python find 3.12.12) scripts/launcher.py accept native
+      - name: Publish browser evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: timepilot-native-bi-v0110-report
-          path: reports/native_bi_acceptance.json
+          name: timepilot-v031-browser-evidence
+          path: reports/
           if-no-files-found: warn
+
+# Enterprise production release is a separate, explicitly gated local process.
+# A source CI pass, synthetic browser result or missing real plant measurements
+# never substitutes for same-source PIT/model/BI and third-party algorithm receipts.

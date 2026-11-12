@@ -5,6 +5,7 @@ replaced. The project catalog, import, generic publish, modeling REST API,
 normalizer, dataset store, task validation and runtime engine remain real.
 """
 from __future__ import annotations
+from timepilot import __version__
 
 import csv
 import io
@@ -270,8 +271,8 @@ def test_agent_modeling_contract_and_page_integration():
     app=(root/'src/timepilot/static/app.js').read_text(encoding='utf-8')
     native=(root/'src/timepilot/static/native-bi.js').read_text(encoding='utf-8')
     projects=(root/'src/timepilot/static/project-ui.js').read_text(encoding='utf-8')
-    assert '/assets/modeling-ui.js?v=0.22.1' in html
-    assert '/assets/modeling-ui.css?v=0.22.1' in html
+    assert f'/assets/modeling-ui.js?v={__version__}' in html
+    assert f'/assets/modeling-ui.css?v={__version__}' in html
     assert 'TimePilotModeling?.click' in app and 'TimePilotModeling?.submit' in app
     assert 'data-native="open-modeling"' in native
     assert '/projects/'+"'" in native or 'ctx.projectId' in native

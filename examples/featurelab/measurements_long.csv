@@ -1,0 +1,4 @@
+source_record_id,device_id,event_time,available_at,metric_name,value,unit
+R0001,EQ-A,2026-11-09T10:00:00+08:00,2026-11-09T10:00:03+08:00,negative_pressure,-15.2,kPa
+R0002,EQ-A,2026-11-09T10:00:00+08:00,2026-11-09T10:00:03+08:00,air_pressure,420.0,kPa
+R0003,EQ-B,2026-11-09T10:00:00+08:00,2026-11-09T10:00:05+08:00,negative_pressure,-14.8,kPa

@@ -1,7 +1,7 @@
-"""Fail-closed gate: on first start, bootstrap npm once and compile the local BI.
+"""Fail-closed native BI readiness check.
 
-Never modify Python packages, install browsers or create environments on start.
-Offline mode uses only previously installed dependencies or compiled assets.
+Normal launch calls --status-only and never downloads/install/builds anything.
+Explicit --auto-build flags remain for legacy build-host scripts only.
 """
 from __future__ import annotations
 
@@ -49,11 +49,16 @@ def main():
     if result['ready'] and source and not missing and virtual:
         print('[BI READY] Perspective JS/CSS/WASM checksum + source fingerprint + Python Virtual Server',flush=True)
         return 0
-    print('[BI CHECK] Offline bundle: '+('valid' if result['ready'] else 'missing/damaged')+
-          ' | frontend source: '+('current' if source else 'outdated')+
+    build_exists=(BUNDLE/'perspective-build.json').is_file()
+    print('[BI CHECK] Offline bundle: '+('valid' if result['ready'] else 'missing/not built' if not build_exists else 'damaged')+
+          ' | frontend source: '+('current' if source else 'not built' if not build_exists else 'outdated')+
           ' | Python imports: '+('ok' if not missing else ', '.join(missing)), flush=True)
     if args.status_only:
         for msg in result['problems'][:5]:print(' - '+msg)
+        if not build_exists:
+            print('[NEXT] Source-only archive: on an online Mac with Node 24, run '
+                  '`bash TIMEPILOT.sh bi-setup --bootstrap-lock`. '
+                  'No Python environment or data directory is recreated.')
         return 1
     if (not result['ready'] or not source) and args.auto_build:
         # The source distribution deliberately omits node_modules and JS/WASM.
@@ -102,7 +107,8 @@ def main():
     if not source:print(' - Source-to-bundle checksum mismatch.',file=sys.stderr)
     if not virtual:print(' - Perspective DuckDB Virtual Server import not verified.',file=sys.stderr)
     print('Check Node/npm 24, network availability on first start, or use TIMEPILOT_OFFLINE=1 with a prebuilt offline distribution.',file=sys.stderr)
-    print('First start may execute npm install once to build Perspective; Python environment and Chrome are never changed automatically.',file=sys.stderr)
+    print('Run `bash TIMEPILOT.sh bi-setup --bootstrap-lock` on an online build machine with Node 24. '
+          'Normal startup does not install dependencies.',file=sys.stderr)
     return 2
 
 

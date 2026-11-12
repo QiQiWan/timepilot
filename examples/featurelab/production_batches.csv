@@ -1,0 +1,3 @@
+batch_id,device_id,product_type,recipe_revision,run_state,available_at
+B0008,EQ-A,PRD-X,R03,RUN,2026-11-09T09:00:00+08:00
+B0011,EQ-B,PRD-Y,R03,IDLE,2026-11-09T09:00:00+08:00

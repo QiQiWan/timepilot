@@ -4,6 +4,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from timepilot.api import create_app
+from timepilot import __version__
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -27,9 +28,10 @@ def test_release_bundle_and_requirement_sync():
     assert 'fastapi' in text and 'pyarrow' in text and 'openpyxl' in text
     assert '-e .' in text and 'autogluon.timeseries==1.6.1' in text
     assert 'duckdb' in text and 'cryptography' in text
-    assert list(ROOT.glob('requirements*.txt')) == [ROOT / 'requirements.txt']
+    assert {p.name for p in ROOT.glob('requirements*.txt')} == {'requirements.txt', 'requirements-featurelab-advanced.txt'}
+    assert 'tsfresh' in (ROOT / 'requirements-featurelab-advanced.txt').read_text()
     assert (ROOT / 'src/timepilot/static/experience.css').is_file()
-    assert '0.22.1' in (ROOT / 'src/timepilot/static/index.html').read_text()
+    assert f'v={__version__}' in (ROOT / 'src/timepilot/static/index.html').read_text()
 
 
 def test_ui_static_assets_not_stale_and_template_download(tmp_path, monkeypatch):
@@ -37,21 +39,21 @@ def test_ui_static_assets_not_stale_and_template_download(tmp_path, monkeypatch)
     with TestClient(create_app(home=tmp_path / 'sandbox', embedded_worker=False)) as http:
         health = http.get('/api/v1/health')
         assert health.status_code == 200
-        assert health.json()['ui_version'] == '0.22.1'
+        assert health.json()['ui_version'] == __version__
         html = http.get('/')
         assert html.status_code == 200
-        assert '/assets/experience.css?v=0.22.1' in html.text
-        assert '/assets/app.js?v=0.22.1' in html.text
-        assert '/assets/project-bi-ui.js?v=0.22.1' in html.text
-        assert '/assets/project-ui.js?v=0.22.1' in html.text
+        assert f'/assets/experience.css?v={__version__}' in html.text
+        assert f'/assets/app.js?v={__version__}' in html.text
+        assert f'/assets/project-bi-ui.js?v={__version__}' in html.text
+        assert f'/assets/project-ui.js?v={__version__}' in html.text
         assert '/assets/bi-ui.js' not in html.text
         assert '/assets/data-assets-ui.js' not in html.text
-        assert '/assets/settings-ui.js?v=0.22.1' in html.text
+        assert f'/assets/settings-ui.js?v={__version__}' in html.text
         assert html.headers['cache-control'].startswith('no-store')
         for filename in ('styles.css', 'experience.css', 'bi-settings.css', 'project-bi-ui.js', 'project-ui.js', 'settings-ui.js', 'app.js'):
-            response = http.get('/assets/' + filename + '?v=0.22.1')
+            response = http.get('/assets/' + filename + '?v={__version__}')
             assert response.status_code == 200
-            assert response.headers['x-timepilot-ui-version'] == '0.22.1'
+            assert response.headers['x-timepilot-ui-version'] == __version__
             assert response.headers['cache-control'].startswith('no-store')
         template = http.get('/api/v1/templates/standard-timeseries.csv')
         assert template.status_code == 200

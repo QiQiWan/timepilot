@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "source_provenance": "synthetic_fixed",
+  "rows": 12,
+  "sha256": "935c9cf9ff873c1b53be2dbaf9a59c6cf5378cec5046826b8c796c7792e1501d",
+  "asset_version_policy": "immutable source + materialized alternative version, no filter carry-over",
+  "oracle_policy": "independent SQL evaluated against read_parquet; local missing duckdb => BLOCKED"
+}

@@ -1,4 +1,4 @@
-"""Forward-only, additive catalog migration through v0.31.0 (project schema 34).
+"""Forward-only, additive catalog migration through v0.34.0 (project schema 38).
 
 No migration changes an original data file, published dataset, model or audit row.
 SQLite backup() captures committed WAL state before the first schema upgrade.
@@ -8,7 +8,7 @@ import sqlite3
 import re
 from pathlib import Path
 
-TARGET_SCHEMA = 34
+TARGET_SCHEMA = 38
 
 
 class CatalogSchemaError(RuntimeError):
@@ -502,6 +502,42 @@ MIGRATIONS={
       report_json TEXT NOT NULL,created_at TEXT NOT NULL);
     CREATE INDEX IF NOT EXISTS idx_feature_join_eval_project
       ON feature_advanced_join_evaluations(project_id,join_id);
+  ''',
+ 35: '''
+    CREATE TABLE IF NOT EXISTS feature_analysis_sessions(
+      session_id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id),
+      owner_id TEXT NOT NULL, request_id TEXT NOT NULL,
+      asset_id TEXT NOT NULL, version_id TEXT NOT NULL,
+      source_sha256 TEXT NOT NULL, contract_revision INTEGER NOT NULL,
+      revision INTEGER NOT NULL DEFAULT 1, state_json TEXT NOT NULL,
+      created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+      UNIQUE(project_id,owner_id,request_id));
+    CREATE INDEX IF NOT EXISTS idx_feature_analysis_latest
+      ON feature_analysis_sessions(project_id,owner_id,asset_id,version_id,created_at);
+  ''',
+ 36: '''
+    ALTER TABLE feature_jobs ADD COLUMN lease_epoch INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE feature_analysis_sessions ADD COLUMN coordinator_owner TEXT;
+    ALTER TABLE feature_analysis_sessions ADD COLUMN coordinator_lease_until TEXT;
+    CREATE INDEX IF NOT EXISTS idx_feature_auto_coord_lease
+      ON feature_analysis_sessions(coordinator_lease_until,updated_at);
+  ''',
+ 37: '''
+    CREATE TABLE IF NOT EXISTS feature_report_artifacts(
+      report_id TEXT PRIMARY KEY,project_id TEXT NOT NULL REFERENCES projects(id),
+      session_id TEXT NOT NULL REFERENCES feature_analysis_sessions(session_id),
+      owner_id TEXT NOT NULL,revision INTEGER NOT NULL,
+      source_sha256 TEXT NOT NULL,artifact_sha256 TEXT,
+      report_sha256 TEXT NOT NULL,body_relpath TEXT NOT NULL,
+      manifest_json TEXT NOT NULL,created_at TEXT NOT NULL,
+      UNIQUE(project_id,session_id,revision));
+    CREATE INDEX IF NOT EXISTS idx_feature_reports_session
+      ON feature_report_artifacts(project_id,session_id,created_at);
+  ''',
+ 38: '''
+    CREATE INDEX IF NOT EXISTS idx_feature_profile_source
+      ON feature_profiles(project_id,asset_id,version_id,source_sha256,contract_revision);
   '''
 
 }

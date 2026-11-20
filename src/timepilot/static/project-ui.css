@@ -87,3 +87,9 @@
 .tp-assets-pagination{display:flex;align-items:center;justify-content:center;gap:12px;padding:12px}
 .tp-asset-modal{border:1px solid var(--line,#ddd);border-radius:12px;padding:22px;width:min(480px,calc(100vw - 32px));color:inherit;background:var(--surface,#fff)}
 .tp-asset-modal::backdrop{background:rgba(16,24,40,.48)}
+
+/* v0.36.4 compact project header: breadcrumb + one navigation row. */
+.project-breadcrumb{margin-bottom:9px;font-size:12px}
+.project-tabs{gap:4px;margin-bottom:14px;padding-bottom:7px}
+.project-tabs a{padding:8px 11px;font-size:13px}
+.project-tabs+div.panel,.project-tabs+section{margin-top:4px}

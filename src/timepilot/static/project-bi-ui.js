@@ -50,7 +50,7 @@
     status('正在连接正式 BI...');ready=false;
     try{
       const info=await request('/ready');if(info.ready!==true)throw new Error('分析依赖尚未就绪');
-      module=await import('/assets/native-bi/perspective-entry.js');
+      module=await window.TimePilotPerspectiveLoader.load();
       const scheme=location.protocol==='https:'?'wss':'ws';
       const ws=`${scheme}://${location.host}/api/v1/native-bi/linked/${U(aid)}/versions/${U(version.version_id)}/ws?selection=${U(JSON.stringify(selection))}`;
       await module.mountPerspectiveRemote(slot,ws);

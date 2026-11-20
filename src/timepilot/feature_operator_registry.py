@@ -40,6 +40,9 @@ OPERATORS = {op.operator_id: op for op in (
     Operator('transform.log1p','2.8','对数变换 log(1+x)','advanced',1,'numeric'),
     Operator('transform.abs','2.8','绝对值变换','advanced',1,'numeric'),
     Operator('transform.sqrt','2.8','平方根变换','advanced',1,'numeric'),
+    Operator('category.is_value','0.33','类别指示值','basic',1,'category'),
+    Operator('industrial.reset_mean','0.35.2','维护/工况段观测均值','industrial',1,'numeric',time_required=True),
+    Operator('industrial.reset_sum','0.35.2','维护后增量累计和','industrial',1,'numeric',time_required=True),
     Operator('expression.safe','2.8','自定义公式','custom',-1,'numeric'),
 )}
 
@@ -50,7 +53,8 @@ SUPPORTED = {'arithmetic.binary','lag.rows','difference.rows','rolling.mean',
              'rolling.std','rolling.min','rolling.max',
              'rolling.duration.mean','rolling.duration.min','rolling.duration.max','event.since',
              'rolling.sum','rolling.median','rolling.p90','rolling.range','rolling.cv','rolling.zscore',
-             'relative.change','transform.log1p','transform.abs','transform.sqrt','expression.safe'}
+             'relative.change','transform.log1p','transform.abs','transform.sqrt','category.is_value','expression.safe',
+             'industrial.reset_mean','industrial.reset_sum'}
 
 
 
@@ -76,6 +80,9 @@ PARAMETER_CONTROLS = {
     'transform.log1p': ['first'],
     'transform.abs': ['first'],
     'transform.sqrt': ['first'],
+    'category.is_value': ['first', 'category_value'],
+    'industrial.reset_mean': ['first','reset_field_id','regime_field_id','mechanism_reference'],
+    'industrial.reset_sum': ['first','reset_field_id','regime_field_id','mechanism_reference','incremental_confirmed'],
     'expression.safe': ['formula'],
 }
 
@@ -87,7 +94,11 @@ def compatible_fields(contract, kind='numeric'):
     import re
     ids=[]
     for f in contract.fields:
-        if kind=='boolean':
+        if kind=='category':
+            ok=(f.semantic_type=='category' and f.confirmation=='confirmed'
+                and f.role in ('unspecified','value','regime')
+                and f.classification!='restricted')
+        elif kind=='boolean':
             ok=(str(f.physical_type).upper()=='BOOLEAN'
                 and f.semantic_type in ('boolean','event') and f.confirmation=='confirmed')
         else:
@@ -95,7 +106,7 @@ def compatible_fields(contract, kind='numeric'):
             suspicious=(bool(re.search(r'(^|[_\s-])(time|date|timestamp|datetime|year|month|day|id|uuid|serial|code|sn)([_\s-]|$)',name,re.I))
                         or any(part in name for part in ('时间','日期','编号','编码','序列号','流水号')))
             forbidden_role=f.role in ('entity_key','event_time','available_at','ingested_at',
-                                      'prediction_time','label','batch_key','record_id')
+                                      'prediction_time','label','batch_key','record_id','order_index','elapsed_time')
             forbidden_semantic=f.semantic_type in ('datetime','id','event','boolean','category','string','target')
             ok=(bool(NUMERIC.match(str(f.physical_type))) and not forbidden_role
                 and not forbidden_semantic and (not suspicious or
@@ -121,9 +132,17 @@ def discover(*, physical_types=None, has_time=False, contract=None):
         if op.operator_id not in SUPPORTED:why='当前版本尚无经过验证的计算执行器'
         elif op.type=='numeric' and not numeric:why='无适用数值字段，请检查时间/编号/标签语义'
         elif op.type=='boolean' and not has_boolean:why='没有经确认的 BOOLEAN 事件字段'
+        elif op.type=='category' and contract is not None and not compatible_fields(contract,'category'):
+            why='需要已确认的非敏感类别字段'
         elif contract is not None and (op.input_count if op.input_count >= 1 else 1)>len(compatible_fields(contract,op.type)):
             why='该算子需要至少两个适用字段，请补充数值列'
         elif op.time_required and not has_time:why='需要先确认真实事件时间和时区'
+        if op.operator_id.startswith('industrial.') and contract is not None:
+            from timepilot.feature_industrial import eligible_reset_features
+            if not eligible_reset_features(contract):
+                why='需要确认设备键、时间、单位、维护事件和人工机理依据'
+            elif op.operator_id=='industrial.reset_sum':
+                why='累计增量必须人工确认，并在特征定义中绑定增量证据'
         found.append({'operator_id':op.operator_id,'version':op.version,'title':op.title,
                       'family':op.family,'input_count':op.input_count,
                       'available':why is None,'disabled_reason':why,'example':op.example,
@@ -154,10 +173,29 @@ def validate_operator(definition, *, supervised=False):
                  'rolling.sum','rolling.median','rolling.p90','rolling.range','rolling.cv','rolling.zscore')},
              'relative.change':{'lag','order_field_id','partition_field_ids'},
              'transform.log1p':set(),'transform.abs':set(),'transform.sqrt':set(),
-             'expression.safe':{'expression'}}[op.operator_id]
+             'category.is_value':{'category_value'},
+             'expression.safe':{'expression'},
+             'industrial.reset_mean':{'order_field_id','partition_field_ids','reset_field_id','regime_field_id','mechanism_reference'},
+             'industrial.reset_sum':{'order_field_id','partition_field_ids','reset_field_id','regime_field_id','mechanism_reference','incremental_confirmed'}}[op.operator_id]
     if set(params)-allowed:raise ValueError('算子包含未知参数：'+','.join(sorted(set(params)-allowed)))
-    if op.operator_id=='arithmetic.binary':
+    if op.operator_id.startswith('industrial.'):
+        if not params.get('reset_field_id') or not params.get('order_field_id'):
+            raise ValueError('工业维护特征缺少维护标记和真实事件时间')
+        if type(params.get('incremental_confirmed',False)) is not bool:
+            raise ValueError('增量确认必须是布尔值')
+        if op.operator_id=='industrial.reset_sum' and params.get('incremental_confirmed') is not True:
+            raise ValueError('累计求和必须先确认输入确实是物理增量')
+        if not isinstance(params.get('mechanism_reference'),str) or not 8<=len(params['mechanism_reference'].strip())<=240:
+            raise ValueError('需要提供 8—240 字的维护/机理规则来源')
+    elif op.operator_id=='arithmetic.binary':
         if params.get('operator','+') not in ('+','-','*','/'):raise ValueError('不支持的数学运算符')
+    elif op.operator_id=='category.is_value':
+        value=params.get('category_value')
+        import math
+        if (not isinstance(value,(str,int,float,bool)) or
+            isinstance(value,str) and (not value or len(value)>120 or '\x00' in value) or
+            isinstance(value,float) and not math.isfinite(value)):
+            raise ValueError('类别值必须为长度不超过120的标量')
     elif op.operator_id=='expression.safe':
         from timepilot.feature_expression import validate_formula
         expression=params.get('expression')

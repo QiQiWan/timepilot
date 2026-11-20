@@ -154,13 +154,15 @@ def test_native_bi_publish_api_idempotent_and_project_isolated(tmp_path):
                 with Path(path).open(encoding='utf-8') as f:
                     reader=csv.DictReader(f); rows=list(reader)
                     created={'asset_id':'local-bi-test-id','name':name,'row_count':len(rows),
-                             'columns':[{'name':x} for x in reader.fieldnames]}
+                             'lineage':lineage,'columns':[{'name':x} for x in reader.fieldnames]}
                 generated[created['asset_id']]=created
                 return created
             def fake_asset(aid):
                 return generated[aid]
             native.import_from_path=fake_import
             native.asset=fake_asset
+            # Keep the test double aligned with the physical SHA verification API.
+            native.verify=lambda aid,force=False: {'valid':aid in generated}
         first=client.post(endpoint,json=request)
         assert first.status_code==201,first.text
         result=first.json();assert result['status']=='ready'

@@ -21,7 +21,7 @@ def main():
     p.add_argument('--require-virtual-server', action='store_true')
     args = p.parse_args()
     status = bundle_status(ROOT / 'src/timepilot/static/native-bi')
-    python_ready = sys.version_info[:2] == (3, 12)
+    python_ready = sys.version_info[:3] == (3, 12, 12)
     duck = importlib.util.find_spec('duckdb') is not None
     arrow = importlib.util.find_spec('pyarrow') is not None
     perspective = importlib.util.find_spec('perspective') is not None
@@ -37,7 +37,7 @@ def main():
     source_current = frontend_matches_bundle(ROOT / 'src/timepilot/static/native-bi', ROOT / 'frontend/native-bi')
     result = {
         'frontend_build_matches_source': source_current,
-        'python_3_12': python_ready, 'duckdb': duck, 'pyarrow': arrow,
+        'python_3_12_12': python_ready, 'duckdb': duck, 'pyarrow': arrow,
         'perspective_python': perspective, 'perspective_duckdb_virtual_server': virtual_server_ready,
         'perspective_virtual_server_error': virtual_error, 'bundle': status,
         'full_browser_integration': 'requires scripts/accept_native_bi_live.py',

@@ -23,6 +23,8 @@ def _app(tmp_path):
         return meta
     native.import_from_path=imported
     native.asset=lambda aid:samples[aid][0]
+    # The test double must implement the same full integrity check as native BI.
+    native.verify=lambda aid,force=False: {'valid':aid in samples}
     native._version=lambda aid,version: {'version_id':version}
     native.query=lambda spec:{'total':len(samples[spec.asset_id][1])}
     return app,samples
@@ -86,8 +88,21 @@ def test_publish_failure_durable_retry_and_rename(tmp_path):
         assert c.get(f'/api/v1/projects/{pid}/data-catalog').json()['count']==0
         versions=c.get(f'/api/v1/projects/{pid}/imports/{iid}/regions/{cid}/versions').json()
         assert len(versions)==1
+        # v0.38.3: the BI write may have occurred before its error was raised.
+        # Do not infer absence from an exception: inspect and record an explicit
+        # authorized review before permitting the next attempt.
         retry=c.post(f'/api/v1/projects/{pid}/publish-jobs/{job["job_id"]}/retry')
-        assert retry.status_code==200 and retry.json()['status']=='queued'
+        assert retry.status_code==422
+        review=f'/api/v1/projects/{pid}/publish-jobs/{job["job_id"]}/reconciliation'
+        evidence=c.get(review)
+        assert evidence.status_code==200, evidence.text
+        assert evidence.json()['classification']=='verified_absence'
+        decision=c.post(review+'/decide',json={
+            'decision_id':str(uuid4()),'action':'retry_verified_absence',
+            'evidence_sha256':evidence.json()['evidence_sha256'],
+            'reason':'已核实当前原生 BI 元数据中不存在该发布版本，允许重新执行',
+            'confirm':True})
+        assert decision.status_code==200 and decision.json()['job']['status']=='queued',decision.text
         done=app.state.project_publication_jobs.work_once()
         assert done['status']=='succeeded'
         assert counter['attempt']==2

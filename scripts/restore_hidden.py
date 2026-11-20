@@ -1,4 +1,4 @@
-"""Safely restore missing/modified release dotfiles from hashed visible copies.
+"""Safely restore missing/modified release dotfiles from SHA256-checked visible copies.
 
 Default mode remains conservative: changed files cause a failure.  Explicit
 --repair-changed keeps an independent byte-for-byte backup of every modified
@@ -21,6 +21,7 @@ BACKUPS = {
     '.dockerignore': 'dockerignore.txt',
     '.env.example': 'env_example.txt',
     '.github/workflows/ci.yml': 'github_workflows_ci.yml',
+    '.github/workflows/offline-release.yml': 'github_workflows_offline_release.yml',
     '.gitignore': 'gitignore.txt',
     '.python-version': 'python_version.txt',
 }

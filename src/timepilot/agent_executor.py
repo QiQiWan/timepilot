@@ -366,9 +366,10 @@ class DurableExecutor:
         with self._db() as con:
             con.execute('BEGIN IMMEDIATE')
             con.execute('''UPDATE jobs SET status=?,last_error=?,result_json=?,pending_json=?,
-                           updated_at=?,lease_owner=NULL,lease_until=NULL WHERE id=? AND lease_owner=?''',
+                           updated_at=?,lease_owner=NULL,lease_until=NULL WHERE id=? AND lease_owner=?
+                           AND status='running' AND lease_until>?''',
                         (status,error,_json(result) if result else None,_json(pending) if pending else None,
-                         time.time(),identifier,self.worker_id))
+                         time.time(),identifier,self.worker_id,time.time()))
             con.commit()
 
     def _select_with_model(self, identifier: str, request: dict, candidates: list[tuple[str,dict]],
@@ -384,6 +385,10 @@ class DurableExecutor:
         with self._db() as con:
             con.execute('BEGIN IMMEDIATE')
             job=self._row(con,identifier)
+            if (job['lease_owner']!=self.worker_id or job['status']!='running'
+                    or job['lease_until'] is None or job['lease_until']<=time.time()):
+                con.rollback()
+                return chosen
             if job['spent_units'] + 3 + self.registry.get(chosen[0]).units > request['max_units']:
                 con.commit()
                 return chosen
@@ -415,8 +420,11 @@ class DurableExecutor:
         while not stop.wait(max(0.4,self.lease_seconds/3)):
             try:
                 with self._db() as con:
-                    con.execute("UPDATE jobs SET lease_until=? WHERE id=? AND lease_owner=? AND status='running'",
-                                (time.time()+self.lease_seconds,identifier,self.worker_id))
+                    current=time.time()
+                    renewed=con.execute("UPDATE jobs SET lease_until=? WHERE id=? AND lease_owner=? AND status='running' AND lease_until>?",
+                                (current+self.lease_seconds,identifier,self.worker_id,current))
+                    if renewed.rowcount!=1:
+                        return
             except sqlite3.Error:
                 LOG.exception('Agent heartbeat failed')
 
@@ -493,7 +501,8 @@ class DurableExecutor:
         with self._db() as con:
             con.execute('BEGIN IMMEDIATE')
             current=self._row(con,identifier)
-            if current['lease_owner']!=self.worker_id or current['status']!='running':
+            if (current['lease_owner']!=self.worker_id or current['status']!='running'
+                    or current['lease_until'] is None or current['lease_until']<=time.time()):
                 con.rollback()
                 return self.status(identifier)
             con.execute('''UPDATE steps SET status=?,result_json=?,result_sha=?,elapsed_seconds=?,finished_at=? WHERE id=?''',

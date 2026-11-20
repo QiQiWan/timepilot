@@ -30,11 +30,22 @@ window.TimePilotFeatureViews.evaluate=function(s,h){
   const searchChoice=searchItems.map(r=>`<label class="tp-fl2-eval-check"><input type="checkbox" name="review_search" value="${esc(r.candidate_id)}" ${selectedReview?.search_candidate_ids.includes(r.candidate_id)?'checked':''}>
       <span><strong>${esc(r.label)}</strong><small>${esc(r.expression)} · ${esc(r.folds)} 折入选 · 需要审阅并重新物化</small></span></label>`).join('');
   const warnings=[...(report?.limitations||[])];
+  const splitLabel={time:'时间滚动验证',grouped_time:'设备隔离时间验证',
+    kfold:'静态随机 K 折',stratified:'静态分层 K 折',group:'静态设备/批次分组 K 折'};
+  const selectionStability=report?.selection_stability;
+  const industrialHoldout=report?.industrial_transfer_holdout?.status==='measured'?report.industrial_transfer_holdout:null;
+  const holdoutMetrics=industrialHoldout?.model_metrics?.[firstModel]||{};
+  const holdoutScore=report?.task_type==='regression'?'mae':'average_precision';
+  const holdoutEvidence=industrialHoldout?`<div class="tp-fl2-eval-card" data-testid="industrial-transfer-holdout"><h4>独立留出设备 / 工况测试</h4>
+     <p>留出类型：${esc(industrialHoldout.kind==='unseen_device'?'未见设备':'未见工况')} · 分组 ${esc(industrialHoldout.holdout_values.join('、'))} · 训练 ${esc(industrialHoldout.train_rows)} 条 · 留出 ${esc(industrialHoldout.holdout_rows)} 条</p>
+     <p>${esc(metricTitle[holdoutScore]||holdoutScore)}：原始字段 ${fmt(holdoutMetrics.raw_only?.[holdoutScore])} / 全部特征 ${fmt(holdoutMetrics.with_features?.[holdoutScore])} / 筛选后 ${fmt(holdoutMetrics.selected_features?.[holdoutScore])}。</p>
+     <p class="muted small">${esc(industrialHoldout.interpretation)} 上游候选可能使用全源无监督画像，只有在候选生成前冻结留出组才能形成严格的盲法评价。 ${industrialHoldout.scope==='group_disjoint_only'?'该结果没有验证未来时间外推。':''}</p>
+     <details><summary>留出来源与审计指纹</summary><code>${esc(industrialHoldout.manifest_sha256)}</code></details></div>`:'';
   const featureSlices=(report?.folds||[]).flatMap(f=>(f.group_stability||[]).flatMap(g=>
     (g.groups||[]).flatMap(by=>(by.slices||[]).map(group=>({fold:f.fold,variant:g.variant,field:by.field,...group})))));
   const drift=(report?.folds||[]).flatMap(f=>(f.feature_stability?.fields||[]).slice(0,5).map(d=>({fold:f.fold,...d})));
   const result=report?`<section class="tp-fl2-eval-results">
-    <div class="tp-fl2-eval-heading"><div><h3>评价结果</h3><p class="muted">${esc(report.mode==='supervised'?'训练折内筛选 · 固定时间验证 · 来源指纹已记录':'无监督探索画像')}</p></div>
+    <div class="tp-fl2-eval-heading"><div><h3>评价结果</h3><p class="muted">${esc(report.mode==='supervised'?'训练折内筛选 · '+(splitLabel[report.split_kind]||'受控验证')+' · 来源指纹已记录':'无监督探索画像')}</p></div>
       <span class="tp-fl2-eval-status">${esc(report.mode==='supervised'?'已计算':'探索性')}</span></div>
     ${report.mode==='exploration'?`<p>已有特征定义 ${esc(report.feature_count)} 项。${report.feature_artifact?'已找到完整物化产物。':'暂未找到完整物化产物。'} 无监督任务不生成预测性能或模型贡献评价。</p>`:`
       <div class="tp-fl2-eval-kpis"><div><small>验证折数</small><strong>${numFolds}</strong></div><div><small>模型方案</small><strong>${esc(report.model_families?.join('、')||'linear')}</strong></div><div><small>筛选特征</small><strong>${selectStats.filter(x=>x.selected_in_folds>0).length}</strong></div><div><small>自动搜索推荐</small><strong>${searchItems.length}</strong></div></div>
@@ -42,8 +53,10 @@ window.TimePilotFeatureViews.evaluate=function(s,h){
         ${modelComparison}
         <div class="tp-fl2-eval-assessments">${screenings}</div>
         <small class="muted">AP 为 Average Precision；分类阈值暂固定 0.5。提高召回率通常需要同时考察误剔率。结果不构成因果推断或统计显著性证明。</small></div>
+      ${holdoutEvidence}
       <div class="tp-fl2-eval-grid"><div class="tp-fl2-eval-card"><h4>训练折筛选结果</h4>
          <p class="muted small">每个训练折独立确定保留字段。新配方保存后仍需重新计算、复核和审批。</p>
+         ${selectionStability?`<p class="muted small">训练折间筛选一致性：${selectionStability.mean_jaccard==null?'不可评价':fmt(selectionStability.mean_jaccard)}（Jaccard，${selectionStability.compared_pairs} 对折；仅描述稳定性）</p>`:''}
          <form id="tp-fl2-review-form"><div class="tp-fl2-eval-selection-list">${selectionItems||'<p>没有可保留的派生特征。</p>'}</div>
          ${searchChoice?`<h4>自动搜索候选</h4><div class="tp-fl2-eval-selection-list">${searchChoice}</div>`:''}
          <label class="field"><span>审阅意见（可选）</span><input name="review_note" maxlength="1000" value="${esc(selectedReview?.note||'')}" placeholder="为什么保留这些特征"></label>
@@ -62,6 +75,8 @@ window.TimePilotFeatureViews.evaluate=function(s,h){
     ${warnings.length?`<details><summary>适用边界与限制（${warnings.length}）</summary>${warnings.map(x=>`<p class="muted small">${esc(x)}</p>`).join('')}</details>`:''}
   </section>`:'';
   const sliceFields=(s.contract?.fields||[]).filter(f=>f.confirmation==='confirmed'&&['entity_key','batch_key','regime'].includes(f.role));
+  const transferFields=sliceFields.filter(f=>f.classification!=='restricted'&&
+      (f.role==='regime'&&f.semantic_type==='category'||f.role==='entity_key'&&s.contract?.entity_field_ids?.includes(f.field_id)));
   return `<section class="tp-fl2-work tp-fl2-eval-work"><header><div><h2>实验评价</h2><p>固定特征集 → 训练折筛选 → 模型对照 → 稳定性诊断 → 审阅保留</p></div></header>
     <form id="tp-fl2-evaluation-form" class="tp-fl2-eval-settings"><div class="tp-fl2-eval-setting-grid">
       <label class="field"><span>特征集</span><select name="set_id" data-feature-v2-change="evaluation-set">${sets.map(r=>`<option value="${esc(r.set_id)}" ${s.activeEvalSet?.set_id===r.set_id?'selected':''}>${esc(r.name)} · 修订 ${r.revision} · ${r.spec?.task?.mode==='supervised'?'监督':'探索'}</option>`).join('')}</select></label>
@@ -71,17 +86,24 @@ window.TimePilotFeatureViews.evaluate=function(s,h){
       <label class="field"><span>冗余相关阈值</span><input name="max_corr" type="number" value="0.985" min="0.5" max="1" step="0.005" required></label>
       <label class="field"><span>筛选排序</span><select name="rank_method"><option value="univariate">训练折标签相关性</option><option value="quality_only">仅做质量筛选</option></select></label>
     </div>
-    <details class="tp-fl2-eval-advanced"><summary>高级设置：内层搜索与设备切片</summary>
+    <details class="tp-fl2-eval-advanced"><summary>高级设置：内层搜索、设备/工况泛化验证</summary>
+      <label class="tp-fl2-eval-check"><input name="transfer_enabled" type="checkbox"><span><strong>独立留出设备 / 工况评价（可选）</strong><small>必须提前指定留出组；只使用其余数据筛选与训练，不能依据留出结果再调参</small></span></label>
+      <div class="tp-fl2-eval-setting-grid">
+        <label class="field"><span>泛化类型</span><select name="transfer_kind"><option value="unseen_device">未见设备</option><option value="unseen_regime">未见工况</option></select></label>
+        <label class="field"><span>留出分组字段</span><select name="transfer_field"><option value="">请选择已确认设备 / 工况字段</option>${transferFields.map(f=>`<option value="${esc(f.field_id)}">${esc(f.display_name||f.source_name)} · ${esc(f.role)}</option>`).join('')}</select></label>
+        <label class="field"><span>留出组值</span><input name="transfer_values" maxlength="500" placeholder="如 设备C；多个值使用英文逗号分隔"></label>
+        <label class="field"><span>时间截断（时序任务必填）</span><input name="transfer_cutoff" maxlength="40" placeholder="2026-01-01T00:00:00Z"></label>
+      </div>
       <label class="tp-fl2-eval-check"><input name="search_enabled" type="checkbox"><span><strong>启用预算受控的自动特征搜索</strong><small>高计算开销；候选只由内层训练/验证选择，默认关闭</small></span></label>
       <div class="tp-fl2-eval-setting-grid">
       <label class="field"><span>最大候选数</span><input name="search_candidates" type="number" value="32" min="1" max="96"></label>
       <label class="field"><span>每折最多模型拟合次数</span><input name="search_fits" type="number" value="8" min="1" max="24"></label>
       <label class="field"><span>每折搜索时间上限（秒）</span><input name="search_seconds" type="number" value="25" min="2" max="120"></label>
-      <label class="field"><span>稳定性分组字段</span><select name="slice_field"><option value="">仅比较跨时间折</option>${sliceFields.map(f=>`<option value="${esc(f.field_id)}">${esc(f.display_name||f.source_name)}</option>`).join('')}</select></label></div>
+      <label class="field"><span>稳定性分组字段</span><select name="slice_field"><option value="">仅比较各验证折</option>${sliceFields.map(f=>`<option value="${esc(f.field_id)}">${esc(f.display_name||f.source_name)}</option>`).join('')}</select></label></div>
     </details>
     <div class="action-row"><button type="submit" class="button button-primary" ${sets.length?'':'disabled'}>生成评价计划</button>
       ${s.evalPlan?`<button type="button" class="button" data-feature-v2="run-eval">开始评价</button>`:''}</div>
-    <p class="muted small">监督评价需要当前特征集已经完成 PIT 验证与全量物化。探索性数据仅生成无标签结果。</p></form>
+    <p class="muted small">监督评价必须绑定已核验的完整物化产物：时序任务要求 PIT 证据，静态任务要求独立性确认及逐行计算证明。探索任务不展示预测收益。</p></form>
     ${s.job&&s.job.kind==='evaluation'?`<p class="tp-fl2-eval-status">评价任务 ${esc(s.job.status)} <button class="button button-small" data-feature-v2="refresh-job">刷新</button></p>`:''}
     ${result}
   </section>`;

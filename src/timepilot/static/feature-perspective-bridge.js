@@ -18,18 +18,20 @@
     const slot=document.getElementById('tp-fl2-perspective');
     if(!slot)throw Error('当前页面未建立 Perspective 显示容器');
     const key=[pid,aid,vid,artifact||'source'].join('|');
-    if(ready&&key===activeKey)return;
+    if(ready&&key===activeKey&&slot.querySelector('perspective-viewer'))return;
     const prevReady=ready,prevKey=activeKey;
     const g=++generation; ready=false;lastError=null;lastComparison=null;
     status('正在加载原生 Perspective 工作区…');
     try {
-      if(!module)module=await import('/assets/native-bi/perspective-entry.js');
+      if(!module)module=await window.TimePilotPerspectiveLoader.load();
       if(g!==generation)return;
       const prior=prevReady && prevKey?.split('|').slice(0,3).join('|')===key.split('|').slice(0,3).join('|')
         ? await module.savePerspectiveState().catch(()=>null):null;
       const saved=setId?await api('/sets/'+u(setId)+'/viewer-state'):null;
       const wanted=saved?.status==='ready'&&saved.workspace?saved.workspace:prior;
-      if(artifact)lastComparison=await module.mountFeatureComparison(slot,wsUrl(pid,aid,vid,artifact),wanted);
+      if(artifact){lastComparison=await module.mountFeatureComparison(slot,wsUrl(pid,aid,vid,artifact),wanted);
+        if(Number(lastComparison?.panel_count)<2)throw Error('正式特征面板未建立，无法确认源表与结果表同时显示');
+      }
       else {
         await module.mountPerspectiveRemote(slot,wsUrl(pid,aid,vid));
         if(wanted)await module.restorePerspectiveState(wanted);
@@ -38,7 +40,7 @@
       activeKey=key;ready=true;viewerRevision=saved?.viewer_revision||0;
       workspaceSet=setId;sourceSha=sha;
       status(artifact?'已加载完整源表与正式特征结果':'已加载固定版本原始数据');
-    } catch(e){ready=false;lastError=e.message;status('工作区加载失败：'+e.message);throw e;}
+    } catch(e){ready=false;lastError=e?.message||String(e||'未知错误');status('工作区加载失败：'+lastError);throw e;}
   }
   async function save(api){
     if(!ready||!module||!workspaceSet||!sourceSha)throw Error('先加载特征结果和特征集');
@@ -55,7 +57,11 @@
     const workspace=await module.savePerspectiveState();
     const savedPanels=Object.keys(workspace?.panels||{}).length;
     const panelCount=Math.min(Number(lastComparison.panel_count)||0,savedPanels);
-    if(panelCount<2)throw Error('当前工作区尚未确认两个真实面板都存在');
+    const tables=Object.values(workspace?.panels||{}).map(panel=>panel.table);
+    if(panelCount<2 || !tables.includes(lastComparison.source_table) ||
+       !tables.includes(lastComparison.result_table) ||
+       lastComparison.source_table===lastComparison.result_table)
+       throw Error('未同时确认原始表和正式特征结果的真实绑定');
     return {viewer_version:'5.6.1',workspace,panel_count:panelCount};
   }
   window.TimePilotFeaturePerspective={mount,save,captureReceipt,dispose,

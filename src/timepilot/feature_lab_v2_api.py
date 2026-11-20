@@ -13,6 +13,7 @@ from timepilot.feature_candidates import FeatureCandidateSessions,infer_fields,T
 from timepilot.feature_advanced import TSFreshRecipe,FeaturetoolsRecipe,capabilities as advanced_capabilities
 from timepilot.feature_advanced_service import AdvancedService,BoundedToolCall
 from timepilot.feature_advanced_join import AdvancedJoinService,AdvancedJoinPlan,AdvancedEvaluationRequest
+from timepilot.feature_candidate_bridge import list_advanced_batches
 
 
 class Strict(BaseModel):model_config=ConfigDict(extra='forbid')
@@ -57,7 +58,7 @@ class CandidateSessionCreate(Strict):
     version_id:str='base'
     request_id:str=Field(min_length=1,max_length=120)
     template:str='basic'
-    budget:int=Field(default=30,ge=1,le=60)
+    budget:int=Field(default=30,ge=1,le=64)
     selected_field_ids:list[str]|None=None
     task_mode:str='exploration'
 class CandidateSessionPatch(Strict):
@@ -72,6 +73,84 @@ class CandidateSave(Strict):
     name:str=Field(min_length=1,max_length=120)
     request_id:str=Field(min_length=1,max_length=120)
     candidate_ids:list[str]|None=None
+
+class TimeBasisAccept(Strict):
+    asset_id:str=Field(min_length=1)
+    version_id:str='base'
+    field_id:str=Field(min_length=5)
+    role:str
+    unit:str|None=None
+    expected_revision:int=Field(ge=0)
+
+class AutoAnalysisCreate(Strict):
+    asset_id:str=Field(min_length=1)
+    version_id:str='base'
+    goal:str=Field(default='',max_length=1000)
+    task_hint:str='auto'
+    budget:int=Field(default=16,ge=1,le=64)
+    request_id:str=Field(min_length=1,max_length=120)
+
+class AutoAnalysisRetry(Strict):
+    expected_revision:int=Field(ge=1)
+
+class ReportArchiveRequest(Strict):
+    expected_revision:int=Field(ge=1)
+
+class DataAnalysisStart(Strict):
+    asset_id:str=Field(min_length=1)
+    version_id:str='base'
+
+
+class DashboardQuery(Strict):
+    asset_id: str=Field(min_length=1)
+    version_id: str='base'
+    expected_sha256: str|None=None
+    expected_revision: int|None=Field(default=None,ge=0)
+    filters: list[dict]=Field(default_factory=list,max_length=5)
+    field_ids: list[str]|None=Field(default=None,max_length=24)
+    association_ids: list[str]|None=Field(default=None,max_length=10)
+    association_method: str='pearson'
+
+class DashboardChartQuery(DashboardQuery):
+    kind: str='histogram'
+    field_id: str
+    other_field_id: str|None=None
+    bins: int=Field(default=16,ge=4,le=50)
+    limit: int=Field(default=12,ge=3,le=25)
+    granularity: str='day'
+
+
+class AutoAnalysisSelection(Strict):
+    expected_revision:int=Field(ge=1)
+    candidate_ids:list[str]=Field(default_factory=list,max_length=64)
+
+class AutoSupervision(Strict):
+    confirm:bool=False
+    label_field_id:str=Field(min_length=1,max_length=100)
+    prediction_time_field_id:str|None=Field(default=None,max_length=100)
+    label_available_at_field_id:str|None=Field(default=None,max_length=100)
+    split_kind:str='time'
+    static_independence_confirmed:bool=False
+    group_field_ids:list[str]=Field(default_factory=list,max_length=3)
+
+class AutoAnalysisSave(Strict):
+    name:str=Field(min_length=1,max_length=120)
+    request_id:str=Field(min_length=1,max_length=120)
+    supervision:AutoSupervision|None=None
+
+class AutoAcceptAndRun(Strict):
+    name:str=Field(min_length=1,max_length=120)
+    request_id:str=Field(min_length=1,max_length=100)
+    confirmed:bool=False
+    supervision:AutoSupervision|None=None
+
+class AutoViewerReceipt(Strict):
+    expected_revision:int=Field(ge=1)
+    artifact_id:str=Field(min_length=1,max_length=120)
+    artifact_sha256:str=Field(min_length=64,max_length=64)
+    viewer_version:str=Field(min_length=1,max_length=60)
+    panel_count:int=Field(ge=2,le=100)
+    workspace:dict
 
 class ExpressionCheck(Strict):
     asset_id:str
@@ -108,6 +187,17 @@ def create_feature_lab_v2_router(projects,native,semantic,registry,jobs,models=N
     from timepilot.feature_agent import FeatureAgent
     agent=FeatureAgent(projects,native,semantic,registry,jobs,models)
     candidates=FeatureCandidateSessions(projects,native,semantic,registry)
+    from timepilot.feature_auto_analysis import FeatureAutoAnalysis
+    auto_analysis=FeatureAutoAnalysis(projects,native,semantic,registry,jobs,models)
+    from timepilot.feature_report_artifacts import FeatureReportArtifacts
+    report_artifacts=FeatureReportArtifacts(auto_analysis)
+    from timepilot.feature_data_analysis import FeatureDataAnalysis
+    eda=FeatureDataAnalysis(projects,semantic,jobs,native)
+    from timepilot.feature_analysis_journey import FeatureAnalysisJourney
+    journey=FeatureAnalysisJourney(eda,auto_analysis)
+    from timepilot.feature_insights import build_insight_brief
+    from timepilot.feature_workbench import FeatureWorkbenchCharts
+    workbench_charts=FeatureWorkbenchCharts(auto_analysis,candidates,semantic,native)
     advanced=AdvancedService(projects,native,semantic,registry,jobs)
     advanced_join=AdvancedJoinService(projects,native,semantic,registry,jobs)
     from timepilot.feature_workflow import FeatureWorkflow
@@ -165,6 +255,279 @@ def create_feature_lab_v2_router(projects,native,semantic,registry,jobs,models=N
                     'contract_revision':doc.revision,'fields':infer_fields(doc)}
         except Exception as exc:fail(exc)
 
+    @router.get('/time-basis/infer')
+    def time_basis_infer(pid:str,asset_id:str,version_id:str='base'):
+        try:
+            from timepilot.feature_time_inference import infer_time_fields
+            contract=semantic.latest(pid,asset_id,version_id)
+            profile=None
+            previous=jobs.recent_profiles(pid,asset_id,version_id,limit=1)
+            if previous and previous[0]['source_sha256']==contract.source_sha256 and previous[0]['contract_revision']==contract.revision:
+                profile=jobs.get_profile(pid,previous[0]['profile_id'])
+            return {'fields':infer_time_fields(contract,profile),
+                    'source_sha256':contract.source_sha256,
+                    'contract_revision':contract.revision,
+                    'profile_scope':profile.get('scope') if profile else 'name_and_type_only'}
+        except Exception as exc:fail(exc)
+
+    @router.post('/time-basis/accept')
+    def time_basis_accept(pid:str,body:TimeBasisAccept):
+        try:
+            from timepilot.feature_time_inference import infer_time_basis
+            from timepilot.feature_compiler import NUMERIC
+            contract=semantic.latest(pid,body.asset_id,body.version_id)
+            if contract.revision!=body.expected_revision or contract.state=='stale':
+                raise ValueError('Field contract revision changed; refresh first')
+            field=next((f for f in contract.fields if f.field_id==body.field_id),None)
+            if field is None:raise ValueError('Unknown source field')
+            basis=infer_time_basis(field)
+            if body.role not in ('order_index','elapsed_time'):
+                raise ValueError('Only sequence or elapsed-time roles can be confirmed here')
+            if not NUMERIC.match(field.physical_type):
+                raise ValueError('Sequence and elapsed time roles require a numeric field')
+            if body.role=='order_index' and basis['kind']!='sequence_order_candidate':
+                raise ValueError('This column is not a supported sequence-order suggestion')
+            if body.role=='elapsed_time' and (body.unit not in ('s','ms','min','h')
+                or basis['kind']!='elapsed_time_candidate'):
+                raise ValueError('Elapsed time needs a supported unit and matching source evidence')
+            # No calendar time is fabricated. This is a field-role change only.
+            return semantic.patch(pid,body.asset_id,body.version_id,{
+                'fields':[{'field_id':field.field_id,'semantic_type':'numeric',
+                           'role':body.role,'confirmation':'confirmed',
+                           'unit':body.unit if body.role=='elapsed_time' else field.unit,
+                           'evidence':(field.evidence+['User confirmed a '+body.role+' interpretation'])[:30]}]},
+                body.expected_revision)
+        except Exception as exc:fail(exc)
+
+    @router.get('/workspace')
+    def analysis_workspace(pid:str,asset_id:str,version_id:str='base'):
+        try:return journey.status(pid,asset_id,version_id)
+        except Exception as exc:fail(exc)
+
+    @router.post('/workspace/start',status_code=202)
+    def start_workspace(pid:str,body:DataAnalysisStart):
+        try:return journey.start(pid,body.asset_id,body.version_id)
+        except Exception as exc:fail(exc)
+
+    @router.get('/workspace/insights')
+    def analysis_workspace_insights(pid:str,asset_id:str,version_id:str='base'):
+        try:
+            # The existing source/owner checks run before any result is returned.
+            analysis=eda.status(pid,asset_id,version_id)
+            source=eda.semantic.source(pid,asset_id,version_id)
+            contract=eda.semantic.latest(pid,asset_id,version_id,source=source)
+            session=auto_analysis.latest(pid,asset_id,version_id)
+            delivery=None
+            if session and not session.get('stale') and session.get('feature_set_id'):
+                delivery=auto_analysis.delivery(pid,session['session_id'])
+            result=build_insight_brief(source_sha256=analysis['source_sha256'],
+                contract_revision=analysis['contract_revision'],
+                data_analysis=analysis,session=session,delivery=delivery,contract=contract)
+            result['task_status']=(session or {}).get('status') or 'not_started'
+            result['task_stage']=(session or {}).get('stage')
+            return result
+        except Exception as exc:fail(exc)
+
+    @router.get('/data-analysis')
+    def data_analysis(pid:str,asset_id:str,version_id:str='base'):
+        try:return eda.status(pid,asset_id,version_id)
+        except Exception as exc:fail(exc)
+
+    @router.post('/data-analysis/start',status_code=202)
+    def start_data_analysis(pid:str,body:DataAnalysisStart):
+        try:return eda.start(pid,body.asset_id,body.version_id)
+        except Exception as exc:fail(exc)
+
+    @router.get('/data-analysis/chart')
+    def data_analysis_chart(pid:str,asset_id:str,field_id:str,version_id:str='base',mode:str='distribution', entity_field_id:str|None=None, entity_value:str|None=None, start:str|None=None, end:str|None=None, resolution:int=120):
+        try:return eda.chart(pid,asset_id,version_id,field_id,mode,entity_field_id=entity_field_id,entity_value=entity_value,start=start,end=end,resolution=resolution)
+        except Exception as exc:dashboard_fail(exc,stage='dashboard.legacy_chart',kind=mode)
+
+    @router.get('/data-analysis/chart-capabilities')
+    def data_analysis_capabilities(pid:str,asset_id:str,version_id:str='base'):
+        try:
+            from timepilot.feature_dashboard_v0372 import _numeric, _time
+            src,con=eda._source(pid,asset_id,version_id)
+            numeric=[f.field_id for f in con.fields if f.classification!='restricted' and _numeric(f)]
+            categories=[f.field_id for f in con.fields if f.classification!='restricted']
+            t=next((f for f in con.fields if f.field_id==con.event_time_field_id and
+                    f.confirmation=='confirmed' and f.classification!='restricted' and _time(f)),None)
+            all_kinds={'histogram':numeric,'box':numeric,'quantiles':numeric,
+                       'category':categories,'scatter':numeric if len(numeric)>1 else [],
+                       'trend':numeric if t else []}
+            hints={'trend':'先确认真实日历时间字段（DATE/TIMESTAMP）；记录序号不能直接作为日期轴',
+                   'scatter':'需要两个不同的数值字段',
+                   'histogram':'需要有限的数值字段', 'box':'需要有限的数值字段',
+                   'quantiles':'需要有限的数值字段','category':'请选择非受限字段，连续数值优先使用直方图'}
+            return {'asset_id':asset_id,'version_id':version_id,'source_sha256':src['sha256'],
+                'contract_revision':con.revision,'confirmed_time_field_id':t.field_id if t else None,
+                'kinds':{kind:{'enabled':bool(ids),'field_ids':ids,'hint':hints[kind]}
+                         for kind,ids in all_kinds.items()}}
+        except Exception as exc:dashboard_fail(exc,stage='dashboard.capabilities')
+
+    def observe_dashboard(operation, kind, action):
+        import time
+        from timepilot.system_logs import log_dashboard_performance
+        started=time.perf_counter()
+        succeeded=False
+        try:
+            result=action()
+            succeeded=True
+            return result
+        finally:
+            log_dashboard_performance(operation=operation, chart_kind=kind,
+                milliseconds=(time.perf_counter()-started)*1000, success=succeeded)
+
+    def dashboard_fail(exc, *, stage:str, kind:str=''):
+        # Expected invalid chart/filter options retain 422/409 responses.
+        if isinstance(exc,(HTTPException,SecurityError,KeyError,ValueError,
+                           NativeBIError,NativeBIDependencyError,ModuleNotFoundError,ImportError)):
+            return fail(exc)
+        from timepilot.system_logs import log_failure, REQUEST_ID, classify_error
+        diagnostic=log_failure(exc,stage=stage,context={'kind':kind,
+            'sql_template_id':'tp.category.counts.v2' if kind=='category' else 'tp.dashboard.'+str(kind or 'overview')})
+        raise HTTPException(status_code=500,detail={
+            'code':classify_error(exc),
+            'message':'统计计算未完成，请在系统日志中按诊断编号查看原因',
+            'diagnostic_id':diagnostic,'request_id':REQUEST_ID.get()}) from exc
+
+    @router.post('/data-analysis/dashboard')
+    def data_analysis_dashboard(pid:str, body:DashboardQuery):
+        try:
+            return observe_dashboard('dashboard.overview','overview',lambda: eda.dashboard(
+                pid,body.asset_id,body.version_id,
+                filters=body.filters,field_ids=body.field_ids,
+                association_ids=body.association_ids,association_method=body.association_method,
+                expected_sha256=body.expected_sha256,expected_revision=body.expected_revision))
+        except Exception as exc:dashboard_fail(exc,stage='dashboard.overview')
+
+    @router.post('/data-analysis/dashboard/report')
+    def data_analysis_dashboard_report(pid:str, body:DashboardQuery):
+        try:
+            from timepilot.feature_evidence_v0373 import dashboard_markdown
+            payload=observe_dashboard('dashboard.report','report',lambda: eda.dashboard(
+                pid,body.asset_id,body.version_id,
+                filters=body.filters,field_ids=body.field_ids,
+                association_ids=body.association_ids,association_method=body.association_method,
+                expected_sha256=body.expected_sha256,expected_revision=body.expected_revision))
+            return dashboard_markdown(payload)
+        except Exception as exc:dashboard_fail(exc,stage='dashboard.report')
+
+    @router.post('/data-analysis/dashboard/chart')
+    def data_analysis_dashboard_chart(pid:str, body:DashboardChartQuery):
+        try:
+            return observe_dashboard('dashboard.chart',body.kind,lambda: eda.dashboard_chart(
+                pid,body.asset_id,body.version_id,
+                kind=body.kind,field_id=body.field_id,other_field_id=body.other_field_id,
+                filters=body.filters,bins=body.bins,limit=body.limit,
+                granularity=body.granularity,expected_sha256=body.expected_sha256,
+                expected_revision=body.expected_revision))
+        except Exception as exc:dashboard_fail(exc,stage='dashboard.chart',kind=body.kind)
+
+    @router.get('/analysis/latest')
+    def auto_latest(pid:str,asset_id:str,version_id:str='base'):
+        try:return {'session':auto_analysis.latest(pid,asset_id,version_id)}
+        except Exception as exc:fail(exc)
+
+    @router.post('/analysis/sessions',status_code=201)
+    def auto_create(pid:str,body:AutoAnalysisCreate):
+        try:return auto_analysis.create(pid,body.asset_id,body.version_id,
+               goal=body.goal,task_hint=body.task_hint,request_id=body.request_id,budget=body.budget)
+        except Exception as exc:fail(exc)
+
+    @router.get('/analysis/sessions/{sid}')
+    def auto_get(pid:str,sid:str):
+        try:return auto_analysis.get(pid,sid)
+        except Exception as exc:fail(exc)
+
+    @router.post('/analysis/sessions/{sid}/advance')
+    def auto_advance(pid:str,sid:str):
+        try:return auto_analysis.advance(pid,sid)
+        except Exception as exc:fail(exc)
+
+    @router.post('/analysis/sessions/{sid}/retry')
+    def auto_retry(pid:str,sid:str,body:AutoAnalysisRetry):
+        try:return auto_analysis.retry_failed(pid,sid,body.expected_revision)
+        except Exception as exc:fail(exc)
+
+    @router.put('/analysis/sessions/{sid}/selection')
+    def auto_select(pid:str,sid:str,body:AutoAnalysisSelection):
+        try:return auto_analysis.select(pid,sid,body.candidate_ids,body.expected_revision)
+        except Exception as exc:fail(exc)
+
+    @router.post('/analysis/sessions/{sid}/save-set',status_code=201)
+    def auto_save(pid:str,sid:str,body:AutoAnalysisSave):
+        try:return auto_analysis.save_set(pid,sid,body.name,body.request_id,
+             supervision=body.supervision.model_dump() if body.supervision else None)
+        except Exception as exc:fail(exc)
+
+    @router.post('/analysis/sessions/{sid}/accept-and-run',status_code=202)
+    def auto_accept_and_run(pid:str,sid:str,body:AutoAcceptAndRun):
+        try:return auto_analysis.accept_and_run(pid,sid,body.name,body.request_id,
+            confirmed=body.confirmed,
+            supervision=body.supervision.model_dump() if body.supervision else None)
+        except Exception as exc:fail(exc)
+
+    @router.post('/analysis/sessions/{sid}/materialize',status_code=202)
+    def auto_materialize(pid:str,sid:str,body:NewJob):
+        try:return auto_analysis.materialize(pid,sid,body.request_id)
+        except Exception as exc:fail(exc)
+
+    @router.get('/analysis/sessions/{sid}/supervision-options')
+    def auto_supervision_options(pid:str,sid:str):
+        try:return auto_analysis.supervision(pid,sid)
+        except Exception as exc:fail(exc)
+
+    @router.get('/analysis/sessions/{sid}/delivery')
+    def auto_delivery(pid:str,sid:str):
+        try:return auto_analysis.delivery(pid,sid)
+        except Exception as exc:fail(exc)
+
+    @router.post('/analysis/sessions/{sid}/viewer-receipt')
+    def auto_viewer_receipt(pid:str,sid:str,body:AutoViewerReceipt):
+        try:return auto_analysis.viewer_receipt(pid,sid,**body.model_dump())
+        except Exception as exc:fail(exc)
+
+    @router.get('/analysis/sessions/{sid}/candidates/{cid}/chart')
+    def candidate_chart(pid:str,sid:str,cid:str,mode:str='auto', entity_field_id:str|None=None, entity_value:str|None=None, start:str|None=None, end:str|None=None, resolution:int=120):
+        try:return workbench_charts.candidate_chart(pid,sid,cid,mode=mode,entity_field_id=entity_field_id,entity_value=entity_value,start=start,end=end,resolution=resolution)
+        except Exception as exc:fail(exc)
+
+    @router.get('/analysis/sessions/{sid}/report')
+    def auto_report(pid:str,sid:str):
+        try:return auto_analysis.report_markdown(pid,sid)
+        except Exception as exc:fail(exc)
+
+    @router.post('/analysis/sessions/{sid}/reports',status_code=201)
+    def archive_report(pid:str,sid:str,body:ReportArchiveRequest):
+        try:return report_artifacts.archive(pid,sid,body.expected_revision)
+        except Exception as exc:fail(exc)
+
+    @router.get('/analysis/sessions/{sid}/reports')
+    def list_reports(pid:str,sid:str):
+        try:return {'reports':report_artifacts.list(pid,sid)}
+        except Exception as exc:fail(exc)
+
+    @router.get('/reports/{report_id}')
+    def archived_report(pid:str,report_id:str):
+        try:return report_artifacts.get(pid,report_id)
+        except Exception as exc:fail(exc)
+
+    @router.get('/reports/{report_id}/diff')
+    def report_diff(pid:str,report_id:str,other_id:str):
+        try:return report_artifacts.diff(pid,report_id,other_id)
+        except Exception as exc:fail(exc)
+
+    @router.post('/analysis/sessions/{sid}/explain')
+    def auto_explain(pid:str,sid:str):
+        try:return auto_analysis.explain(pid,sid)
+        except Exception as exc:fail(exc)
+
+    @router.get('/analysis/sessions/{sid}/agent')
+    def auto_agent_status(pid:str,sid:str):
+        try:return auto_analysis.agent_status(pid,sid)
+        except Exception as exc:fail(exc)
+
     @router.post('/expressions/validate')
     def expression_validate(pid:str,body:ExpressionCheck):
         try:
@@ -177,6 +540,14 @@ def create_feature_lab_v2_router(projects,native,semantic,registry,jobs,models=N
             from timepilot.feature_custom import validate_custom_definition
             return validate_custom_definition(contract,body.input_field_ids,
                                               body.expression,body.display_name)
+        except Exception as exc:fail(exc)
+
+    @router.get('/analysis/advanced-batches')
+    def advanced_candidate_batches(pid:str,asset_id:str,version_id:str='base'):
+        try:
+            return list_advanced_batches(pid,asset_id,version_id,
+                projects=projects,native=native,semantic=semantic,
+                registry=registry,advanced=advanced,join_service=advanced_join)
         except Exception as exc:fail(exc)
 
     @router.get('/advanced/capabilities')
@@ -345,6 +716,14 @@ def create_feature_lab_v2_router(projects,native,semantic,registry,jobs,models=N
         try:return registry.create(pid,body.spec,body.request_id)
         except Exception as e:fail(e)
 
+    @router.get('/sets/temporal-audits')
+    def temporal_audit_list(pid:str,asset_id:str|None=None):
+        try:
+            rows=registry.list(pid,aid=asset_id)
+            return {'items':[registry.temporal_audit(pid,r['set_id']) for r in rows],
+                    'scope':'schema_only','count':len(rows)}
+        except Exception as exc:fail(exc)
+
     @router.get('/sets/{sid}')
     def get_set(pid:str,sid:str):
         try:return registry.get(pid,sid)
@@ -354,6 +733,11 @@ def create_feature_lab_v2_router(projects,native,semantic,registry,jobs,models=N
     def update_set(pid:str,sid:str,body:PatchSet):
         try:return registry.update(pid,sid,body.spec,body.expected_revision)
         except Exception as e:fail(e)
+
+    @router.get('/sets/{sid}/temporal-audit')
+    def temporal_audit_one(pid:str,sid:str):
+        try:return registry.temporal_audit(pid,sid)
+        except Exception as exc:fail(exc)
 
     @router.get('/sets/{sid}/latest-artifact')
     def latest_artifact(pid:str,sid:str):

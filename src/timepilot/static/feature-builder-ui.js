@@ -17,12 +17,14 @@ window.TimePilotFeatureViews.build=function(s,h){
   const opOptions=operators.filter(o=>o.operator_id!=='expression.safe').map(o=>`<option value="${h.e(o.operator_id)}" ${o.operator_id===current?.operator_id?'selected':''} ${o.available?'':'disabled'}>${h.e(o.title)}${o.available?'':'（不可用）'}</option>`).join('');
   const fieldEditor=current?`<form id="tp-fl2-add-step" class="tp-fl2-manual-form">
     <label class="field"><span>计算方法</span><select name="operator_id" data-feature-v2-change="manual-operator">${opOptions}</select></label>
+    ${window.TimePilotOperatorHelp?.render(current.operator_id)||''}
     ${controls.includes('first')?`<label class="field"><span>输入字段</span>${optionList('first',d.first)}</label>`:''}
     ${controls.includes('event')?`<label class="field"><span>已核实的维护事件标记（BOOLEAN）</span>${optionList('event',d.event)}</label>`:''}
     ${controls.includes('second')?`<label class="field"><span>第二个数值字段</span>${optionList('second',d.second)}</label>`:''}
     ${controls.includes('window')?`<label class="field"><span>${current.operator_id.startsWith('lag.')||current.operator_id.startsWith('difference.')||current.operator_id==='relative.change'?'历史滞后条数':'窗口记录数'}</span><input type="number" name="window" value="${h.e(d.window||5)}" min="1" max="240" required></label>`:''}
     ${controls.includes('window_seconds')?`<label class="field"><span>真实时间窗口（秒）</span><input name="window_seconds" type="number" min="1" max="604800" value="${h.e(d.window_seconds||1800)}" required></label>`:''}
     ${controls.includes('min_periods')?`<label class="field"><span>最少有效观测数</span><input name="min_periods" type="number" min="1" max="240" value="${h.e(d.min_periods||1)}" required></label>`:''}
+    ${controls.includes('category_value')?`<label class="field"><span>类别值（逐行匹配，区分大小写）</span><input name="category_value" maxlength="120" required placeholder="例如：A班" value="${h.e(d.category_value||'')}"></label>`:''}
     ${controls.includes('sign')?`<label class="field"><span>运算符</span><select name="sign">${[['+','加法'],['-','减法'],['*','乘法'],['/','安全除法（除零置空）']].map(([v,label])=>`<option value="${v}" ${d.sign===v?'selected':''}>${label}</option>`).join('')}</select></label>`:''}
     <label class="field"><span>中文显示名称（可选）</span><input name="display_name" maxlength="160" placeholder="默认使用字段与算子说明" value="${h.e(d.display_name||'')}"></label>
     <div class="tp-fl2-inline-info">技术名将自动生成，原始数据不会修改。</div>
@@ -147,13 +149,14 @@ window.TimePilotFeatureViews.build=function(s,h){
   const manual=`<div class="tp-fl2-manual-layout"><div class="tp-fl2-auto-panel"><h3>手工构造特征</h3><p class="muted small">算子决定输入类型及所需参数；只展示当前需要填写的内容。</p>${fieldEditor}</div>
     <div class="tp-fl2-auto-panel"><h3>特征集草稿 <span class="badge">${s.steps.length}</span></h3>${draftItems||'<p class="tp-fl2-empty">添加一个字段计算后，可以保存特征集草稿。</p>'}
       <form id="tp-fl2-save-set" class="tp-fl2-manual-save"><label class="field"><span>特征集名称</span><input name="name" required maxlength="120" placeholder="例如 设备运行状态特征"></label>
-      <label class="field"><span>特征用途</span><select name="task_mode"><option value="exploration">探索性分析</option><option value="supervised">监督预测（需绑定标签和时间）</option></select></label>
+      <label class="field"><span>特征用途</span><select name="task_mode"><option value="exploration">探索性分析</option><option value="supervised">监督预测（静态数据或时间预测）</option></select></label>
       <details class="tp-fl2-task-binding"><summary>设置监督预测的标签与评价协议</summary><p class="muted small">${confirmedTime?'已具备时间与实体契约':'请先在数据画像中确认事件时间、可用时间、实体键和时区。'}</p>
         <label class="field"><span>目标类型</span><select name="task_type"><option value="binary_classification">二分类</option><option value="regression">回归</option></select></label>
         <label class="field"><span>预测时刻</span><select name="prediction_time">${selectTime()}</select></label>
-        <label class="field"><span>标签字段</span><select name="label"><option value="">请选择</option>${fields.filter(f=>f.role!=='entity_key'&&f.semantic_type!=='datetime').map(f=>`<option value="${h.e(f.field_id)}">${h.e(f.source_name)}</option>`).join('')}</select></label>
+        <label class="field"><span>标签字段</span><select name="label"><option value="">请选择</option>${fields.filter(f=>f.role==='label'&&f.confirmation==='confirmed'&&f.semantic_type==='numeric').map(f=>`<option value="${h.e(f.field_id)}">${h.e(f.source_name)}</option>`).join('')}</select></label>
         <label class="field"><span>标签可用时刻</span><select name="label_available">${selectTime()}</select></label>
-        <label class="field"><span>评价切分</span><select name="split_kind"><option value="time">时间滚动切分</option><option value="grouped_time">设备/批次隔离时间切分</option></select></label>
+        <label class="field"><span>评价切分</span><select name="split_kind"><option value="time">时间滚动切分</option><option value="grouped_time">设备/批次隔离时间切分</option><option value="kfold">静态回归 K 折</option><option value="stratified">静态二分类分层 K 折</option><option value="group">静态设备/批次分组 K 折</option></select></label>
+        <label class="tp-auto-checkbox"><input type="checkbox" name="static_independence_confirmed" value="yes"> 使用静态验证时，我确认样本的独立性与输入字段在决策时可用</label>
       </details><button class="button button-primary" type="submit" ${s.steps.length?'':'disabled'}>保存特征集草稿</button></form>
     </div></div>`;
   const formulaFields=fields.filter(f=>suggestions.find(x=>x.field_id===f.field_id)?.eligible_numeric??

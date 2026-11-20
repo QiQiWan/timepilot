@@ -1,5 +1,209 @@
 {
   "$defs": {
+    "AutoSearchPolicy": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "default": false,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "max_candidates": {
+          "default": 32,
+          "maximum": 96,
+          "minimum": 1,
+          "title": "Max Candidates",
+          "type": "integer"
+        },
+        "max_model_fits": {
+          "default": 8,
+          "maximum": 24,
+          "minimum": 1,
+          "title": "Max Model Fits",
+          "type": "integer"
+        },
+        "max_seconds_per_fold": {
+          "default": 25.0,
+          "maximum": 120.0,
+          "minimum": 2.0,
+          "title": "Max Seconds Per Fold",
+          "type": "number"
+        },
+        "max_winners": {
+          "default": 2,
+          "maximum": 8,
+          "minimum": 1,
+          "title": "Max Winners",
+          "type": "integer"
+        },
+        "min_gain": {
+          "default": 0.0,
+          "maximum": 1.0,
+          "minimum": 0,
+          "title": "Min Gain",
+          "type": "number"
+        }
+      },
+      "title": "AutoSearchPolicy",
+      "type": "object"
+    },
+    "IndustrialTransferPolicy": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "unseen_device",
+            "unseen_regime"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "group_field_id": {
+          "minLength": 5,
+          "title": "Group Field Id",
+          "type": "string"
+        },
+        "holdout_values": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 6,
+          "minItems": 1,
+          "title": "Holdout Values",
+          "type": "array"
+        },
+        "time_cutoff": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Time Cutoff"
+        },
+        "min_train_rows": {
+          "default": 40,
+          "maximum": 100000,
+          "minimum": 40,
+          "title": "Min Train Rows",
+          "type": "integer"
+        },
+        "min_holdout_rows": {
+          "default": 20,
+          "maximum": 100000,
+          "minimum": 15,
+          "title": "Min Holdout Rows",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "kind",
+        "group_field_id",
+        "holdout_values"
+      ],
+      "title": "IndustrialTransferPolicy",
+      "type": "object"
+    },
+    "QualitySelectionPolicy": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "max_missing_fraction": {
+          "default": 0.6,
+          "maximum": 0.99,
+          "minimum": 0.0,
+          "title": "Max Missing Fraction",
+          "type": "number"
+        },
+        "min_std": {
+          "default": 1e-10,
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Min Std",
+          "type": "number"
+        },
+        "max_abs_correlation": {
+          "default": 0.985,
+          "maximum": 1.0,
+          "minimum": 0.5,
+          "title": "Max Abs Correlation",
+          "type": "number"
+        },
+        "max_selected": {
+          "default": 24,
+          "maximum": 100,
+          "minimum": 1,
+          "title": "Max Selected",
+          "type": "integer"
+        },
+        "min_pair_observations": {
+          "default": 16,
+          "maximum": 1000,
+          "minimum": 3,
+          "title": "Min Pair Observations",
+          "type": "integer"
+        },
+        "rank_method": {
+          "default": "univariate",
+          "enum": [
+            "univariate",
+            "quality_only"
+          ],
+          "title": "Rank Method",
+          "type": "string"
+        }
+      },
+      "title": "QualitySelectionPolicy",
+      "type": "object"
+    },
+    "SlicePolicy": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "field_ids": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 3,
+          "title": "Field Ids",
+          "type": "array"
+        },
+        "min_rows": {
+          "default": 20,
+          "maximum": 1000,
+          "minimum": 10,
+          "title": "Min Rows",
+          "type": "integer"
+        },
+        "min_positives": {
+          "default": 3,
+          "maximum": 100,
+          "minimum": 1,
+          "title": "Min Positives",
+          "type": "integer"
+        },
+        "max_groups": {
+          "default": 12,
+          "maximum": 25,
+          "minimum": 2,
+          "title": "Max Groups",
+          "type": "integer"
+        }
+      },
+      "title": "SlicePolicy",
+      "type": "object"
+    },
     "TaskSpecV2": {
       "additionalProperties": false,
       "properties": {
@@ -93,7 +297,10 @@
           "default": "time",
           "enum": [
             "time",
-            "grouped_time"
+            "grouped_time",
+            "kfold",
+            "stratified",
+            "group"
           ],
           "title": "Split Kind",
           "type": "string"
@@ -104,6 +311,11 @@
           },
           "title": "Group Field Ids",
           "type": "array"
+        },
+        "static_independence_confirmed": {
+          "default": false,
+          "title": "Static Independence Confirmed",
+          "type": "boolean"
         },
         "n_splits": {
           "default": 3,
@@ -166,6 +378,46 @@
       "minimum": 100,
       "title": "Max Rows",
       "type": "integer"
+    },
+    "min_relative_improvement": {
+      "default": 0.01,
+      "maximum": 0.25,
+      "minimum": 0.0,
+      "title": "Min Relative Improvement",
+      "type": "number"
+    },
+    "selection": {
+      "$ref": "#/$defs/QualitySelectionPolicy"
+    },
+    "search": {
+      "$ref": "#/$defs/AutoSearchPolicy"
+    },
+    "slices": {
+      "$ref": "#/$defs/SlicePolicy"
+    },
+    "models": {
+      "items": {
+        "enum": [
+          "linear",
+          "forest"
+        ],
+        "type": "string"
+      },
+      "maxItems": 2,
+      "minItems": 1,
+      "title": "Models",
+      "type": "array"
+    },
+    "industrial_transfer": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/IndustrialTransferPolicy"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     }
   },
   "required": [

@@ -151,8 +151,11 @@ def test_api_custom_expression_and_stale_pins(tmp_path):
         advanced=client.post(api+'/candidate-sessions',json={
             'asset_id':aid,'request_id':'advanced-28-'+str(uuid4()),'template':'advanced','budget':9})
         assert advanced.status_code==201,advanced.text
-        assert advanced.json()['generator_version']=='0.28.0'
-        assert 'rolling.median' in [x['operator_id'] for x in advanced.json()['candidates']]
+        assert advanced.json()['generator_version']=='0.34.1'  # Current candidate generator; historical API route retained
+        # Without a confirmed order index, historical advanced template must not
+        # synthesize rolling windows using the CSV import row number.
+        assert all(not x['operator_id'].startswith('rolling.') for x in advanced.json()['candidates'])
+        assert advanced.json()['topology']['can_propose_windows'] is False
         sid=advanced.json()['session_id']
         revision=advanced.json()['revision']
         saved=client.patch(api+'/candidate-sessions/'+sid,json={

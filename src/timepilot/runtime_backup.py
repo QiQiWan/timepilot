@@ -40,7 +40,7 @@ def _safe_paths(home: Path):
 
 
 def _db_check(path: Path):
-    with sqlite3.connect(f'file:{path}?mode=ro',uri=True,timeout=30) as db:
+    with sqlite3.connect(path.resolve().as_uri()+'?mode=ro',uri=True,timeout=30) as db:
         checked=db.execute('PRAGMA integrity_check').fetchone()[0]
     if checked!='ok':raise RuntimeBackupError('SQLite integrity_check 失败：'+str(path))
 
@@ -50,6 +50,8 @@ def create_backup(home: Path,output: Path) -> dict:
     if not home.is_dir():raise RuntimeBackupError('运行数据目录不存在')
     if home==output or output.is_relative_to(home):
         raise RuntimeBackupError('备份文件必须放在运行数据目录之外，以免递归备份')
+    if output.exists() or output.is_symlink():
+        raise RuntimeBackupError('备份目标文件已存在，拒绝覆盖已有灾备文件')
     items=list(_safe_paths(home))
     if not items:raise RuntimeBackupError('运行数据目录中没有可备份文件')
     output.parent.mkdir(parents=True,exist_ok=True)
@@ -82,7 +84,9 @@ def create_backup(home: Path,output: Path) -> dict:
                 target.writestr('BACKUP_MANIFEST.json',json.dumps(manifest,ensure_ascii=False,indent=2))
         check=verify_backup(Path(temporary))
         if not check['ok']:raise RuntimeBackupError('备份包校验失败')
-        os.replace(temporary,output)
+        if output.exists() or output.is_symlink():
+            raise RuntimeBackupError('备份完成前目标文件已被其他进程创建，拒绝覆盖')
+        os.rename(temporary,output)
         return {'archive':str(output),'files':len(entries),'sqlite_snapshots':sql_count,
                 'bytes':output.stat().st_size,'sha256':digest_file(output),'verified':True}
     finally:
@@ -101,9 +105,14 @@ def verify_backup(archive: Path) -> dict:
         if len(names)!=len(set(names)) or set(names)!=expected:
             raise RuntimeBackupError('备份内容与清单不一致')
         for name,item in manifest['files'].items():
-            pure=PurePosixPath(name)
-            if pure.is_absolute() or any(part in ('','.','..') for part in pure.parts):
-                raise RuntimeBackupError('备份存在非法文件路径')
+            _checked_backup_member(name)
+            if not isinstance(item, dict) or type(item.get('bytes')) is not int or item['bytes'] < 0 or not isinstance(item.get('sha256'), str):
+                raise RuntimeBackupError('备份元数据格式无效：'+name)
+            info=source.getinfo('data/'+name)
+            if info.is_dir() or (info.create_system==3 and (info.external_attr >> 16) & 0o170000 == 0o120000):
+                raise RuntimeBackupError('不允许从符号链接或目录 ZIP 条目恢复：'+name)
+            if info.file_size != item['bytes']:
+                raise RuntimeBackupError('备份 ZIP 文件长度与清单不一致：'+name)
             h=hashlib.sha256();count=0
             with source.open('data/'+name) as f:
                 for block in iter(lambda:f.read(1024*1024),b''):
@@ -112,3 +121,82 @@ def verify_backup(archive: Path) -> dict:
                 raise RuntimeBackupError('备份内容校验失败：'+name)
         return {'ok':True,'files':len(manifest['files']),
                 'sqlite_snapshots':manifest['sqlite_count'],'created_at':manifest['created_at']}
+
+
+def _checked_backup_member(name: str) -> str:
+    """Keep Windows and POSIX paths within a new, empty recovery directory."""
+    if (not isinstance(name, str) or not name or '\\' in name or ':' in name
+            or '\x00' in name or any(ord(ch) < 32 for ch in name)):
+        raise RuntimeBackupError('备份存在不安全的文件名')
+    if name.startswith('/') or any(part in ('', '.', '..') for part in name.split('/')):
+        raise RuntimeBackupError('备份存在路径遍历或非标准路径')
+    return name
+
+
+def restore_backup(archive: Path, destination: Path) -> dict:
+    """Verify and stage a restore; never touch an existing runtime directory.
+
+    The caller must stop the service and supply a *new* destination. The final
+    rename occurs only after hashes and SQLite integrity checks pass. Existing
+    data, including TIMEPILOT_HOME, are never overwritten by this function.
+    """
+    import shutil
+    import time
+
+    started = time.monotonic()
+    archive = Path(archive).expanduser().resolve(strict=True)
+    supplied = Path(destination).expanduser().absolute()
+    if supplied.is_symlink():
+        raise RuntimeBackupError('恢复目标为符号链接，拒绝操作')
+    destination = supplied.resolve(strict=False)
+    if destination.exists() or destination.is_symlink():
+        raise RuntimeBackupError('恢复目标必须为不存在的新目录，禁止覆盖已有运行数据')
+    if destination == destination.parent or not destination.parent.is_dir():
+        raise RuntimeBackupError('恢复目标的父目录必须已存在')
+    # A backup inside the target cannot occur because target must not exist.
+    archive_sha = digest_file(archive)
+    snapshot = verify_backup(archive)
+    staging = Path(tempfile.mkdtemp(prefix='.tp-restore-', dir=destination.parent))
+    entries = []
+    try:
+        with zipfile.ZipFile(archive, 'r') as source:
+            manifest = json.loads(source.read('BACKUP_MANIFEST.json'))
+            files = manifest['files']
+            for name, meta in sorted(files.items()):
+                _checked_backup_member(name)
+                target = staging.joinpath(*name.split('/'))
+                target.parent.mkdir(parents=True, exist_ok=True)
+                if target.exists() or target.is_symlink():
+                    raise RuntimeBackupError('恢复目标中出现重复文件：' + name)
+                sha = hashlib.sha256()
+                written = 0
+                with source.open('data/' + name) as reader, target.open('xb') as writer:
+                    for block in iter(lambda: reader.read(1024 * 1024), b''):
+                        writer.write(block)
+                        sha.update(block)
+                        written += len(block)
+                    writer.flush()
+                    os.fsync(writer.fileno())
+                if written != meta['bytes'] or sha.hexdigest() != meta['sha256']:
+                    raise RuntimeBackupError('恢复文件哈希不一致：' + name)
+                if meta.get('sqlite_snapshot'):
+                    _db_check(target)
+                    with sqlite3.connect(target.resolve().as_uri()+'?mode=ro', uri=True) as db:
+                        tables = db.execute("SELECT count(*) FROM sqlite_master WHERE type='table'").fetchone()[0]
+                    entries.append({'path': name, 'sqlite_tables': tables})
+        # The archive itself must remain byte-identical throughout recovery.
+        if digest_file(archive) != archive_sha:
+            raise RuntimeBackupError('恢复期间备份压缩包被修改，已拒绝提交')
+        # Keep the destination name unoccupied until all restore checks succeed.
+        if destination.exists() or destination.is_symlink():
+            raise RuntimeBackupError('恢复期间目标路径被其他进程占用，拒绝替换')
+        # POSIX rename and Windows rename both reject existing populated trees.
+        staging.rename(destination)
+        return {'status': 'restored_to_new_directory', 'destination': str(destination),
+                'source_archive_sha256': archive_sha, 'verified_files': snapshot['files'],
+                'sqlite_snapshots': snapshot['sqlite_snapshots'],
+                'sqlite_table_inventory': entries, 'elapsed_seconds': round(time.monotonic()-started, 3),
+                'original_runtime_untouched': True}
+    finally:
+        if staging.exists():
+            shutil.rmtree(staging)

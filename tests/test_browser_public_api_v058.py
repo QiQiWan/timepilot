@@ -67,7 +67,12 @@ def test_build_config_and_main_define_same_required_browser_exports():
         assert f'export async function {function}(' in main
         assert f"'{function}'" in plugin
         assert f"'{function}'" in js
-    assert 'perspective-build.json' in js and "entry.sha256.slice(0,16)" in js
+    loader = (ROOT / 'src/timepilot/static/perspective-loader.js').read_text(encoding='utf-8')
+    assert 'TimePilotPerspectiveLoader.load()' in js
+    assert 'perspective-build.json' in loader
+    assert "manifest?.files?.['perspective-entry.js']?.sha256" in loader
+    assert 'import(ENTRY)' in loader
+    assert '/perspective-entry.js?v=' not in js
 
 
 def test_real_browser_acceptance_checks_module_before_duckdb_datagrid():

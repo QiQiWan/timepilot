@@ -156,11 +156,12 @@ def test_startup_gate_never_bootstraps_without_reviewed_build():
     source=(root/'scripts/launcher.py').read_text()
     ensure=(root/'scripts/ensure_native_bi.py').read_text()
     build=(root/'scripts/BUILD_OFFLINE_RELEASE.sh').read_text()
-    assert "'--auto-build','--auto-bootstrap'" not in source
-    assert "'--status-only'" in source
-    assert 'npm ci' in build
-    assert 'package-lock.json' in build
-    assert '--with-native-bundle' in build
+    assert "bi_flags=['--status-only']" in source
+    assert "env.get('TIMEPILOT_AUTO_BUILD_BI','0') == '1'" in source
+    assert "bi_flags=['--auto-build']" in source
+    assert 'scripts/npm_lock_health.py' in build
+    assert 'scripts/setup_native_bi.py' in build
+    assert '--with-native-bundle' in build and '--complete-offline' in build
     assert 'pip install' not in ensure
 
 
@@ -278,7 +279,7 @@ def test_normal_start_bootstraps_frontend_when_bundle_is_missing(tmp_path,monkey
     monkeypatch.setattr(sys,'argv',['ensure_native_bi.py','--auto-build','--auto-bootstrap'])
     monkeypatch.delenv('TIMEPILOT_OFFLINE',raising=False)
     assert gate.main()==0
-    assert len(calls)==1 and calls[0][0][-1]=='scripts/build_native_bi.py'
+    assert len(calls)==1 and calls[0][0][1:] == ['scripts/setup_native_bi.py', '--bootstrap-lock']
     assert calls[0][1]['env'].get('TIMEPILOT_SKIP_NPM_INSTALL') is None
 
 

@@ -1,0 +1,23 @@
+{
+  "static_regression.csv": {
+    "sha256": "083454e22e76478311e4e95401c7bb105bfd50629ed5a1eea4f3bc19e365cd27",
+    "rows": 270,
+    "task": "regression",
+    "synthetic": true,
+    "generator_seed": 3302001
+  },
+  "static_binary.csv": {
+    "sha256": "6ca60cb4a806a74fff50dedbce9df80d9c61a604a7c5f05b235882994d472a60",
+    "rows": 360,
+    "task": "binary_classification",
+    "synthetic": true,
+    "generator_seed": 3302002
+  },
+  "multi_device_time.csv": {
+    "sha256": "df50a143e2429b0616fb5506af522c2699fcf0192c9050a056d4893d5452f759",
+    "rows": 480,
+    "task": "multi_device_temporal_regression",
+    "synthetic": true,
+    "generator_seed": 3302003
+  }
+}

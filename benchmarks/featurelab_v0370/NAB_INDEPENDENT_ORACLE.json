@@ -1,0 +1,129 @@
+{
+  "audit_type": "Independent official source metadata and retrospective scoring, executed via connected GitHub file reads and pure JS; not TimePilot Python/duckdb execution",
+  "source": "https://github.com/numenta/NAB",
+  "git_object_pins": {
+    "labels/combined_windows.json": "2f1be355750a2fefa8d781215d3275fda3d83d23",
+    "data/realAWSCloudwatch/ec2_cpu_utilization_24ae8d.csv": "9185706041f377320d8fa45cbfb8097ac64e322b",
+    "data/realAWSCloudwatch/ec2_cpu_utilization_53ea38.csv": "06695ff205cd31ffb851150a1c4b583019f53bf1",
+    "data/realAWSCloudwatch/ec2_cpu_utilization_5f5533.csv": "071ec4bf080a9924d6eed6f212131c232db8c79f",
+    "data/realAWSCloudwatch/ec2_cpu_utilization_77c1ca.csv": "f4b3da1f21dbf8a93d97dd122cbf7a2551eff74d",
+    "data/realAWSCloudwatch/ec2_cpu_utilization_825cc2.csv": "db8b7dc9173f4d8c0c230bf2f78e85f586886e71",
+    "data/realAWSCloudwatch/ec2_cpu_utilization_ac20cd.csv": "7d3486c1d8e298eef224efe99a700180a1bf309c",
+    "data/realAWSCloudwatch/ec2_cpu_utilization_c6585a.csv": "fadc9eac5cd59da043227c0a5b511bf98f44d671",
+    "data/realAWSCloudwatch/ec2_cpu_utilization_fe7f93.csv": "ccb3fcd10d5600ac4f141c7bab77b6352dfe2bb0"
+  },
+  "rows": 32256,
+  "devices": 8,
+  "total_window_marked_records": 2760,
+  "device_source_stats": {
+    "24ae8d": {
+      "rows": 4032,
+      "window_marked_records": 402
+    },
+    "53ea38": {
+      "rows": 4032,
+      "window_marked_records": 402
+    },
+    "5f5533": {
+      "rows": 4032,
+      "window_marked_records": 402
+    },
+    "77c1ca": {
+      "rows": 4032,
+      "window_marked_records": 403
+    },
+    "825cc2": {
+      "rows": 4032,
+      "window_marked_records": 343
+    },
+    "ac20cd": {
+      "rows": 4032,
+      "window_marked_records": 403
+    },
+    "c6585a": {
+      "rows": 4032,
+      "window_marked_records": 0
+    },
+    "fe7f93": {
+      "rows": 4032,
+      "window_marked_records": 405
+    }
+  },
+  "unique_time_values": 18261,
+  "time_zone": "source-naive, not verified UTC",
+  "predeclared_time_cuts": [
+    "2014-04-07 14:55:00",
+    "2014-04-13 23:05:00"
+  ],
+  "predeclared_holdout_devices": {
+    "validation": "ac20cd",
+    "test": "fe7f93"
+  },
+  "cross_time_training": {
+    "rows": 20464,
+    "positive": 1611
+  },
+  "backtest": {
+    "cross_time": {
+      "validation": {
+        "rows": 6617,
+        "positive": 403,
+        "raw": {
+          "AP": 0.051376,
+          "ROC_AUC": 0.320561
+        },
+        "past_residual": {
+          "AP": 0.133302,
+          "ROC_AUC": 0.490198
+        }
+      },
+      "test": {
+        "rows": 5175,
+        "positive": 746,
+        "raw": {
+          "AP": 0.268168,
+          "ROC_AUC": 0.625656
+        },
+        "past_residual": {
+          "AP": 0.145854,
+          "ROC_AUC": 0.542492
+        }
+      }
+    },
+    "cross_device": {
+      "validation": {
+        "rows": 4032,
+        "positive": 403,
+        "raw": {
+          "AP": 0.286077,
+          "ROC_AUC": 0.672836
+        },
+        "past_residual": {
+          "AP": 0.076506,
+          "ROC_AUC": 0.369835
+        }
+      },
+      "test": {
+        "rows": 4032,
+        "positive": 405,
+        "raw": {
+          "AP": 0.118158,
+          "ROC_AUC": 0.461872
+        },
+        "past_residual": {
+          "AP": 0.100726,
+          "ROC_AUC": 0.479541
+        }
+      }
+    }
+  },
+  "method": "Training-split-only robust median/1.4826 MAD; score=sigmoid(|z|-3), raw sensor or sensor minus mean of preceding 3 samples per instance. Average precision and ROC-AUC independently calculated; no anomaly label used in fit or tuning.",
+  "limitations": [
+    "Official samples read via connected GitHub app, not transferred to container",
+    "This is an independent cross-check; release physical DuckDB/PyArrow and TimePilot model execution remain BLOCKED",
+    "NAB event annotations are retrospective windows, no certified label availability time",
+    "Metrics are for cloud EC2 operational telemetry, not automotive equipment."
+  ],
+  "oracle_status": "External independently calculated reference values; must be matched by TimePilot run before real-data acceptance",
+  "runtime_note": "Official raw files were read with GitHub connector; local Python DuckDB/Parquet was not executed in this source audit."
+}

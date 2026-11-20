@@ -179,14 +179,53 @@ class FeatureRegistry:
             self._event(db,pid,sid,'approve',{'reason':reason.strip(),'spec_sha':rec['spec_sha256']})
         return self.get(pid,sid)
 
+    def temporal_audit(self,pid,sid):
+        """An inspection does not mutate an approved or published legacy set."""
+        rec=self.get(pid,sid)
+        spec=FeatureSpecV2.model_validate(rec['spec'])
+        try:
+            contract=self.semantics.get_revision(pid,rec['asset_id'],rec['version_id'],
+                                                rec['contract_revision'])
+        except KeyError:
+            if rec['contract_revision'] != 0:
+                # An erased historical contract must fail CLOSED, but should not
+                # make the entire catalog unreadable during an audit.
+                return {'schema_version':1,'risk':'high','can_publish':False,
+                    'source_sha256':rec['source_sha256'],
+                    'contract_revision':rec['contract_revision'],
+                    'spec_sha256':rec['spec_sha256'],
+                    'window_feature_count':None,
+                    'validation_scope':'missing_historical_contract',
+                    'issues':[{'feature_id':None,'output_name':None,
+                        'code':'historical_contract_unavailable','severity':'high',
+                        'message':'原始字段契约修订已不可用，无法安全验证历史配方'}],
+                    'next_action':'恢复历史字段契约，或用当前契约新建草稿重新计算并审核。',
+                    'set_id':sid,'set_state':rec['state'],'set_revision':rec['revision']}
+            # Older detected contracts at revision zero were never persisted.
+            # Never reinterpret an old recipe using a different confirmed revision.
+            contract=self.semantics.latest(pid,rec['asset_id'],rec['version_id'])
+        from timepilot.feature_legacy_audit import temporal_recipe_audit
+        result=temporal_recipe_audit(spec,contract)
+        if contract.revision!=rec['contract_revision'] or contract.source_sha256!=rec['source_sha256']:
+            result['risk']='high'
+            result['can_publish']=False
+            result['issues'].append({'feature_id':None,'output_name':None,
+                'code':'source_contract_stale','severity':'high',
+                'message':'历史字段契约或来源指纹已变化，不能将当前字段语义用于旧结果'})
+        result.update({'set_id':sid,'set_state':rec['state'],'set_revision':rec['revision']})
+        return result
+
     def publication_preview(self,pid,sid):
         rec=self.get(pid,sid);self.pinned(pid,rec)
         from timepilot.feature_artifact_policy import eligible_artifact
-        candidate=eligible_artifact(self.projects,pid,rec,self.semantics)
-        return {'set_id':sid,'state':rec['state'],'approved':rec['state'] in ('approved','published'),
+        audit=self.temporal_audit(pid,sid)
+        candidate=(eligible_artifact(self.projects,pid,rec,self.semantics)
+                   if audit['can_publish'] else None)
+        return {'temporal_audit':audit, 'set_id':sid,'state':rec['state'],'approved':rec['state'] in ('approved','published'),
                 'artifact_ready':candidate is not None,
                 'artifact_id':candidate['artifact']['artifact_id'] if candidate else None,
-                'artifact_gate':'verified' if candidate else 'no_successful_verified_artifact',
+                'artifact_gate':('unsafe_legacy_order' if not audit['can_publish'] else
+                                 'verified' if candidate else 'no_successful_verified_artifact'),
                 'requires_human_confirmation':True,'source_sha256':rec['source_sha256'],
                 'feature_spec_sha256':rec['spec_sha256']}
 
@@ -199,6 +238,8 @@ class FeatureRegistry:
             raise ValueError('只允许发布已完整核验的全量特征集，不允许发布预览选区')
         self.pinned(pid,rec)
         preview=self.publication_preview(pid,sid)
+        if not preview['temporal_audit']['can_publish']:
+            raise ValueError('历史窗口特征缺少可靠排序/设备分组；需要重建新草稿并重新物化，不能直接发布')
         if not preview['artifact_ready']:raise ValueError('必须先生成并校验全量特征计算结果')
         from timepilot.feature_execution import FeatureJobEngine
         artifact_id=preview['artifact_id']

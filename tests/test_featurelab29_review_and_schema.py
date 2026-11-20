@@ -87,13 +87,13 @@ def test_schema_upgrade_31_to_32_keeps_projects_and_assets(tmp_path):
     try:
         p=app.state.projects
         with p._lock,p._db() as db:
-            assert db.execute('SELECT version FROM project_schema').fetchone()[0]==TARGET_SCHEMA==34
+            assert db.execute('SELECT version FROM project_schema').fetchone()[0]==TARGET_SCHEMA
             before=db.execute('SELECT COUNT(*) FROM projects').fetchone()[0]
             db.execute('DROP TABLE feature_evaluation_selections')
             db.execute('DROP INDEX IF EXISTS idx_feature_selection_report')
             db.execute('UPDATE project_schema SET version=31')
             migrate(db)
-            assert db.execute('SELECT version FROM project_schema').fetchone()[0]==34
+            assert db.execute('SELECT version FROM project_schema').fetchone()[0]==TARGET_SCHEMA
             assert db.execute('SELECT COUNT(*) FROM projects').fetchone()[0]==before
             assert db.execute("SELECT name FROM sqlite_master WHERE name='feature_evaluation_selections'").fetchone()
     finally:client.__exit__(None,None,None)

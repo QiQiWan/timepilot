@@ -117,8 +117,8 @@ BROWSER_EXPORT_CHECK = r"""async () => {
   if (!/^[0-9a-f]{64}$/.test(String(hash || ''))) {
     throw new Error('Perspective entry JS hash is missing');
   }
-  const uri = '/assets/native-bi/perspective-entry.js?v=' + hash.slice(0, 16);
-  const module = await import(uri);
+  const module = await window.TimePilotPerspectiveLoader.load();
+  const uri = '/assets/native-bi/perspective-entry.js';
   const names = ['mountPerspective', 'mountPerspectiveRemote', 'getActiveTableName',
     'setPerspectivePreset', 'savePerspectiveState', 'restorePerspectiveState',
     'disposePerspective'];

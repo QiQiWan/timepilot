@@ -1,0 +1,57 @@
+name: TimePilot complete target-platform offline release (manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      runner:
+        description: 'Wheelhouse target platform (one release ZIP per OS/CPU)'
+        type: choice
+        required: true
+        options:
+          - macos-14
+          - ubuntu-24.04
+          - windows-2022
+
+jobs:
+  complete-offline:
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Verify exact interpreter and source
+        shell: bash
+        run: |
+          python -c 'import sys;assert sys.version_info[:3]==(3,12,12)'
+          python scripts/verify_installation.py --source-only
+      - name: Install project dependencies in build runner
+        shell: bash
+        run: python -m pip install -r requirements.txt
+      # This is intentionally blocked until package-lock.json is reviewed
+      # and committed to the source release. No mutable npm resolution in CI.
+      - name: Verify committed npm lock
+        shell: bash
+        run: python scripts/npm_lock_health.py
+      - name: Build, exercise, verify and atomically publish offline ZIP
+        shell: bash
+        run: bash scripts/BUILD_OFFLINE_RELEASE.sh
+      - name: Independent source-to-archive parity check
+        shell: bash
+        run: |
+          VERSION="$(python -c 'import tomllib;from pathlib import Path;print(tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))["project"]["version"])')"
+          VERSION_TAG="v$(printf '%s' "$VERSION" | tr -d '.')"
+          ARCHIVE="TimePilot_v${VERSION}_COMPLETE_OFFLINE.zip"
+          python scripts/verify_offline_archive_v0388.py --archive "$ARCHIVE" --require-complete --source-root . --out "reports/${VERSION_TAG}/final_archive.json"
+      - name: Archive distribution and QA receipts
+        uses: actions/upload-artifact@v4
+        with:
+          name: timepilot-complete-${{ inputs.runner }}
+          path: |
+            TimePilot_v*_COMPLETE_OFFLINE.zip
+            reports/
+          if-no-files-found: error

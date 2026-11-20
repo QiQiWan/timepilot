@@ -114,11 +114,35 @@ window.TimePilotFeatureAdvanced=(()=>{
       </section>`;
   }
   async function load(s,api){
-    const a=state(s);try{a.capabilities=await api('/advanced/capabilities');}
+    const a=state(s);
+    const query=new URLSearchParams(location.search);
+    const requestedEngine=query.get('engine');
+    if(['tsfresh','featuretools'].includes(requestedEngine))a.engine=requestedEngine;
+    try{a.capabilities=await api('/advanced/capabilities');}
     catch(ex){a.error='算法能力检查失败：'+ex.message;}
     try{
-      const recent=await api('/advanced/jobs/latest?asset_id='+u(s.asset));
-      if(recent?.job){a.job=recent.job;a.artifact=recent.job.result?.native_asset_id?recent.job.result:null;}
+      const requestedJob=query.get('job');
+      const recent=requestedJob?{job:await api('/advanced/jobs/'+u(requestedJob))}:
+         await api('/advanced/jobs/latest?asset_id='+u(s.asset));
+      const result=recent?.job?.result;
+      const pin=result?.sources?.primary;
+      if(recent?.job && (!requestedJob || (pin?.asset_id===s.asset && pin?.version_id===(s.version||'base')))){
+        a.job=recent.job;
+        a.artifact=result?.native_asset_id?await api('/advanced/artifacts/'+u(recent.job.job_id)):null;
+        if(a.artifact?.engine)a.engine=a.artifact.engine;
+        const selected=(s.advancedBatches?.batches||[]).find(b=>b.job_id===recent.job.job_id);
+        const linkedJob=query.get('join')||selected?.join?.join_id;
+        if(linkedJob){
+          try{
+            a.joined=await api('/advanced/join/results/'+u(linkedJob));
+            a.joinJob={job_id:linkedJob,status:'succeeded'};
+            if(selected?.evaluation?.evaluation_id){
+              a.evalReport=await api('/advanced/join/evaluations/'+u(selected.evaluation.evaluation_id));
+              a.evalJob={job_id:selected.evaluation.evaluation_id,status:'succeeded'};
+            }
+          }catch(ex){a.error='历史高级回接复核失败：'+ex.message;}
+        }
+      }
     }catch{ /* old project may not have advanced records */ }
   }
   async function change(s,api,element,show){

@@ -87,6 +87,57 @@ def worker(once: bool = typer.Option(False, help="Handle one queued run and exit
         console.print("Worker stopped")
 
 
+@app.command('worker-service')
+def worker_service(
+    role: str = typer.Option(..., help='forecast, agent, upload, publication, feature'),
+    home: Path | None = typer.Option(None, help='Reuse the existing TIMEPILOT_HOME'),
+    poll_seconds: float = typer.Option(.75, min=.1, max=60),
+    max_rss_mib: float | None = typer.Option(None, help='Admission pause threshold, MiB (not a hard memory limit)'),
+    once: bool = typer.Option(False, help='Execute exactly one scan iteration and exit'),
+    parent_pid: int | None = typer.Option(None, help='Internal pool parent PID; stop if it exits'),
+):
+    """Start a single isolated OS-process worker. Run one per role."""
+    import signal
+    import threading
+    from timepilot.worker_runtime import build_worker_runtime
+    from timepilot.worker_supervisor import (ROLES, WorkerSupervisor,
+                                             WorkerLeaseBusy, WorkerLeaseLost)
+    if role not in ROLES:
+        raise typer.BadParameter('Choose a single role: ' + ', '.join(ROLES))
+    runtime = build_worker_runtime(role, home=home)
+    registry = runtime.registry
+    supervisor = WorkerSupervisor(registry, role, runtime.action,
+                                  poll_seconds=poll_seconds, max_rss_mib=max_rss_mib,
+                                  parent_pid=parent_pid)
+    stopping = threading.Event()
+    def request_stop(_signum, _frame):
+        stopping.set()
+    old_int = signal.signal(signal.SIGINT, request_stop)
+    old_term = signal.signal(signal.SIGTERM, request_stop)
+    try:
+        console.print(f'Worker service={role}, home={registry.home}. Ctrl+C for graceful shutdown.')
+        supervisor.run(stopping, max_cycles=1 if once else None)
+    except WorkerLeaseBusy as exc:
+        console.print(f'[red]CONFLICT[/red] {exc}')
+        raise typer.Exit(code=3) from exc
+    except WorkerLeaseLost as exc:
+        console.print(f'[red]LEASE LOST[/red] {exc}')
+        raise typer.Exit(code=4) from exc
+    finally:
+        signal.signal(signal.SIGINT, old_int)
+        signal.signal(signal.SIGTERM, old_term)
+        runtime.close()
+
+
+@app.command('worker-status')
+def worker_status(home: Path | None = typer.Option(None, help='Existing TIMEPILOT_HOME')):
+    """Inspect process leases without opening project data or starting a server."""
+    from timepilot.worker_supervisor import WorkerRegistry
+    settings = Settings.from_env(home)
+    report = WorkerRegistry(settings.home).snapshot()
+    console.print_json(json.dumps(report, ensure_ascii=False))
+
+
 @app.command()
 def inspect(run_id: str):
     client = TimePilot()

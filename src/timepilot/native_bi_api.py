@@ -11,9 +11,12 @@ import asyncio
 import os
 import threading
 import logging
+import re
+import time
 from concurrent.futures import ThreadPoolExecutor
 from pydantic import BaseModel, Field
 
+from timepilot.model_task_store import ModelTaskError,ModelTaskConflict
 from timepilot.native_bi import (
     NativeBIDependencyError, NativeBIError, NativeBIService, QuerySpec, ViewSpec
 )
@@ -111,6 +114,22 @@ def create_timepilot_virtual_server(connection):
     return _TimePilotDuckDBServer(connection)
 
 
+def prediction_session_valid(current, *, run_id, asset_id, revision, manifest_sha256):
+    """Fail-closed long-lived prediction WS authorization snapshot check.
+
+    This does not replace project session auth; the caller MUST re-check the
+    origin/session grant before calling. Task revocation and stale source are
+    checked against the live signed execution projection.
+    """
+    if not isinstance(current,dict):return False
+    asset=current.get('prediction_asset') or {}
+    return bool(current.get('state')=='succeeded' and current.get('current')
+        and current.get('report_available') and current.get('run_id')==run_id
+        and asset.get('revision')==revision and
+        asset.get('manifest_sha256')==manifest_sha256 and
+        asset.get('asset_id')==asset_id)
+
+
 class _OrderedPerspectiveHandler:
     """WebSocket session whose native requests and teardown are strictly ordered.
 
@@ -121,7 +140,8 @@ class _OrderedPerspectiveHandler:
     only after the SQL executor has drained. A browser disconnect never races
     against a queued request to the same session.
     """
-    def __init__(self, server, websocket, executor, loop):
+    def __init__(self, server, websocket, executor, loop, reauthorize=None):
+        self.reauthorize = reauthorize
         self.server = server
         self.websocket = websocket
         self.executor = executor
@@ -159,8 +179,21 @@ class _OrderedPerspectiveHandler:
         session = self.server.new_session(self._respond)
         try:
             await self.websocket.accept()
+            last_auth=0.0
             while True:
-                frame = await self.websocket.receive_bytes()
+                if self.reauthorize and time.monotonic()-last_auth>=5:
+                    try:authorized=await self.reauthorize()
+                    except Exception:authorized=False
+                    if not authorized:
+                        await self.websocket.close(code=1008,reason='Prediction access no longer authorized')
+                        return
+                    last_auth=time.monotonic()
+                try:
+                    frame = await asyncio.wait_for(self.websocket.receive_bytes(),
+                        timeout=5 if self.reauthorize else None)
+                except asyncio.TimeoutError:
+                    # Re-evaluate source revision and project grant during idle WS.
+                    continue
                 # Official Perspective VirtualServer mutates per-session Rust
                 # view registries. Never process the same session concurrently.
                 future = self.executor.submit(session.handle_request, frame)
@@ -232,7 +265,54 @@ def create_native_bi_router(native: NativeBIService, legacy, settings, models=No
     stream_hub = RealtimeStreamHub()
     # Process-local slots and per-session thread pools prevent unrestricted WS growth.
     # Multi-process quotas, per-statement cancellation, RBAC remain enterprise blockers.
-    ws_slots = threading.BoundedSemaphore(max(1, min(8, int(os.getenv('TIMEPILOT_BI_WS_MAX', '2')))))
+    ws_capacity = max(1, min(8, int(os.getenv('TIMEPILOT_BI_WS_MAX', '2'))))
+    ws_slots = threading.BoundedSemaphore(ws_capacity)
+    ws_lock = threading.Lock()
+    ws_state = {'active': 0, 'failures': {}}
+
+    def trace_id(websocket: WebSocket) -> str:
+        raw = websocket.query_params.get('tp_trace', '')
+        return raw if re.fullmatch(r'[A-Za-z0-9_-]{8,40}', raw) else ''
+
+    def record_ws_issue(websocket: WebSocket, stage: str, code: str, close_code: int):
+        trace = trace_id(websocket)
+        if trace:
+            with ws_lock:
+                stale = [key for key, item in ws_state['failures'].items()
+                         if time.monotonic() - item['time'] > 180]
+                for key in stale:
+                    del ws_state['failures'][key]
+                if len(ws_state['failures']) >= 128:
+                    oldest = min(ws_state['failures'], key=lambda key: ws_state['failures'][key]['time'])
+                    del ws_state['failures'][oldest]
+                ws_state['failures'][trace] = {'time': time.monotonic(), 'stage': stage,
+                                               'code': code, 'close_code': close_code}
+        logger.warning('Perspective WS failure trace=%s stage=%s code=%s close_code=%s',
+                       trace or '-', stage, code, close_code)
+
+    async def reject_ws(websocket: WebSocket, *, stage: str, code: str, close_code: int, reason: str):
+        record_ws_issue(websocket, stage, code, close_code)
+        try:
+            await websocket.close(code=close_code, reason=reason)
+        except (*_SOCKET_CLOSED_ERRORS, RuntimeError):
+            pass
+
+    @router.get('/ws-status')
+    def websocket_diagnostics(tp_trace: str = ''):
+        # Detailed in-memory connection diagnostics are restricted to the local
+        # development server; enterprise users receive no cross-session counts.
+        if not settings.local_mode:
+            raise HTTPException(status_code=403, detail='BI diagnostics only available locally')
+        if tp_trace and not re.fullmatch(r'[A-Za-z0-9_-]{8,40}', tp_trace):
+            raise HTTPException(status_code=422, detail='Invalid connection trace')
+        with ws_lock:
+            failure = ws_state['failures'].get(tp_trace) if tp_trace else None
+            if failure and time.monotonic() - failure['time'] > 180:
+                failure = None
+            return {'active_connections': ws_state['active'], 'max_connections': ws_capacity,
+                    'last_failure': {k:v for k,v in failure.items() if k!='time'} if failure else None,
+                    'trace_id': tp_trace}
+
     ws_timeout = max(30, min(3600, int(os.getenv('TIMEPILOT_BI_WS_MAX_AGE_SECONDS', '600'))))
 
     def allowed_origin(websocket: WebSocket) -> bool:
@@ -262,47 +342,60 @@ def create_native_bi_router(native: NativeBIService, legacy, settings, models=No
             return False
         import re
         match=re.search(r'/((?:assets)|(?:linked))/([^/]+)/versions/([^/]+)(?:/feature-artifacts/[^/]+)?/ws$',websocket.url.path)
-        if not match:
-            return False
+        prediction=re.fullmatch(r'/api/v1/native-bi/model-predictions/([0-9a-fA-F-]{36})/([0-9a-fA-F-]{36})/([0-9a-fA-F-]{36})/ws',websocket.url.path)
         try:
+            if prediction:
+                if prediction.group(1)!=project_id:return False
+                security.allowed_project(principal,project_id,required='viewer')
+                return True
+            if not match:return False
             security.asset_access(principal,project_id,match.group(2),linked=(match.group(1)=='linked'))
             return True
         except (SecurityError,ValueError):
             return False
 
-    async def run_limited_websocket(websocket: WebSocket, server, *, connection=None):
+    async def run_limited_websocket(websocket: WebSocket, server, *, connection=None,
+                                    reauthorize=None):
         if not allowed_origin(websocket):
-            await websocket.close(code=1008, reason='Same-origin WebSocket required')
+            await reject_ws(websocket, stage='handshake', code='origin_denied',
+                            close_code=1008, reason='Same-origin WebSocket required')
             return
         if not ws_slots.acquire(blocking=False):
-            await websocket.close(code=1013, reason='BI connections busy')
+            await reject_ws(websocket, stage='capacity', code='connections_busy',
+                            close_code=1013, reason='BI connections busy')
             return
+        with ws_lock:
+            ws_state['active'] += 1
         executor = None
+        started = time.monotonic()
+        trace = trace_id(websocket)
+        logger.info('Perspective WS start trace=%s path=%s', trace or '-', websocket.url.path)
         try:
             executor = _TimedPerspectiveExecutor(connection)
             handler = _OrderedPerspectiveHandler(
-                server, websocket, executor, asyncio.get_running_loop())
+                server, websocket, executor, asyncio.get_running_loop(), reauthorize=reauthorize)
             await asyncio.wait_for(handler.run(), timeout=ws_timeout)
         except _SOCKET_CLOSED_ERRORS as exc:
-            # Starlette added WebSocketDisconnected (distinct from its older
-            # WebSocketDisconnect) in newer releases. Both are expected on
-            # reload/navigation and must not generate ASGI 500 tracebacks.
             code = getattr(exc, 'code', 1001)
             if code not in (1000, 1001):
-                logger.info('Perspective WebSocket peer disconnected, code=%s', code)
+                record_ws_issue(websocket, 'transport', 'peer_disconnected', code)
         except asyncio.TimeoutError:
             if connection is not None:
                 connection.interrupt()
-            try:
-                await websocket.close(code=1001, reason='BI session lifetime exceeded')
-            except (*_SOCKET_CLOSED_ERRORS, RuntimeError):
-                pass  # Peer closed while the deadline was being enforced.
+            await reject_ws(websocket, stage='session', code='session_timeout',
+                            close_code=1001, reason='BI session lifetime exceeded')
+        except Exception:
+            logger.exception('Perspective WS crashed trace=%s', trace or '-')
+            await reject_ws(websocket, stage='protocol', code='server_protocol_error',
+                            close_code=1011, reason='BI protocol failed; see server logs')
         finally:
-            # Session cleanup already drained the executor. An interrupt is
-            # reserved for timed-out/cancelled work, not normal tab closure.
             if executor is not None:
                 await asyncio.to_thread(executor.shutdown)
             ws_slots.release()
+            with ws_lock:
+                ws_state['active'] -= 1
+            logger.info('Perspective WS end trace=%s duration_ms=%0.1f',
+                        trace or '-', (time.monotonic()-started)*1000)
 
 
     def fail(exc: Exception):
@@ -314,6 +407,62 @@ def create_native_bi_router(native: NativeBIService, legacy, settings, models=No
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         raise exc
 
+    @router.websocket('/model-predictions/{pid}/{task_id}/{prediction_id}/ws')
+    async def model_prediction_perspective(websocket:WebSocket,pid:str,task_id:str,prediction_id:str):
+        """Read-only Perspective of verified, current validation prediction rows."""
+        if not allowed_origin(websocket) or websocket.query_params.get('project_id')!=pid:
+            await reject_ws(websocket,stage='authorization',code='prediction_project_denied',
+                            close_code=1008,reason='Authorized project scope required')
+            return
+        try:
+            from uuid import UUID
+            from timepilot.model_task_store import ModelTaskError,ModelTaskConflict
+            for key in (pid,task_id,prediction_id):UUID(key)
+            unified=getattr(websocket.app.state,'unified_model_runs',None)
+            if unified is None:raise KeyError('Model execution service unavailable')
+            execution=await asyncio.to_thread(unified.summary,pid,task_id)
+            asset=execution.get('prediction_asset') or {}
+            if (execution.get('state')!='succeeded' or not execution.get('current') or
+                not execution.get('report_available') or asset.get('asset_id')!=prediction_id):
+                raise KeyError('Predictions require the current approved, successful run')
+            file,is_parquet=await asyncio.to_thread(unified.predictions.source_file,pid,task_id,
+                                                 execution['run_id'],prediction_id)
+            literal="'"+str(file).replace("'","''")+"'"
+            table_source=('read_parquet(' if is_parquet else
+                          'read_csv(')+literal+(')' if is_parquet else ", header=true, auto_detect=true)")
+            # Expose a visible, stable prediction ID: Perspective hides __tp_*
+            # fields from its viewer schema. The signed ID remains unchanged.
+            prediction_sql='SELECT *, "__tp_rowid" AS "prediction_row_id" FROM '+table_source
+            original_run=execution['run_id']
+            original_revision=asset['revision']
+            original_manifest=asset['manifest_sha256']
+
+            async def reauthorize_prediction():
+                if not allowed_origin(websocket):return False
+                try:
+                    current=await asyncio.to_thread(unified.summary,pid,task_id)
+                    return prediction_session_valid(current,run_id=original_run,
+                        asset_id=prediction_id,revision=original_revision,
+                        manifest_sha256=original_manifest)
+                except Exception:
+                    return False
+
+            # Server-only immutable path from the verified task registry.
+            with native._connection() as con:
+                con.execute('SET threads=1')
+                con.execute('SET preserve_insertion_order=true')
+                prepare_perspective_source(con,prediction_sql)
+                server=create_timepilot_virtual_server(con)
+                await run_limited_websocket(websocket,server,connection=con,
+                                            reauthorize=reauthorize_prediction)
+        except ImportError:
+            await reject_ws(websocket,stage='dependency',code='perspective_or_duckdb_missing',
+                            close_code=1011,reason='Native Perspective dependencies missing')
+        except (KeyError,ValueError,NativeBIError,ModelTaskError,ModelTaskConflict) as exc:
+            logger.warning('Model prediction Perspective rejected: %s',type(exc).__name__)
+            await reject_ws(websocket,stage='prediction',code='prediction_asset_unavailable',
+                            close_code=1008,reason='Prediction artifact unavailable or out of date')
+
     @router.websocket('/assets/{asset_id}/versions/{version_id}/ws')
     async def live_perspective(websocket: WebSocket, asset_id: str, version_id: str):
         """Official Perspective DuckDB Virtual Server over a same-origin WebSocket.
@@ -323,7 +472,7 @@ def create_native_bi_router(native: NativeBIService, legacy, settings, models=No
         stale views cannot silently become charts of a different dataset.
         """
         if not allowed_origin(websocket):
-            await websocket.close(code=1008, reason='Same-origin WebSocket required')
+            await reject_ws(websocket, stage='handshake', code='origin_denied', close_code=1008, reason='Same-origin WebSocket required')
             return
         try:
             meta = native.asset(asset_id)
@@ -337,22 +486,22 @@ def create_native_bi_router(native: NativeBIService, legacy, settings, models=No
                 server = create_timepilot_virtual_server(con)
                 await run_limited_websocket(websocket, server, connection=con)
         except ImportError:
-            await websocket.close(code=1011, reason='Perspective Python dependency missing')
+            await reject_ws(websocket,stage='dependency',code='perspective_missing',close_code=1011,reason='Perspective Python dependency missing')
         except (NativeBIError, ValueError, KeyError):
-            await websocket.close(code=1008, reason='Invalid asset or immutable data revision')
+            await reject_ws(websocket,stage='asset',code='invalid_source_revision',close_code=1008,reason='Invalid asset or immutable data revision')
 
     @router.websocket('/assets/{asset_id}/versions/{version_id}/feature-artifacts/{artifact_id}/ws')
     async def feature_comparison_perspective(websocket:WebSocket,asset_id:str,version_id:str,artifact_id:str):
         # One server; source and immutable derived result share its connection.
         # No original bytes or arbitrary filesystem paths pass through the client.
         if not allowed_origin(websocket):
-            await websocket.close(code=1008,reason='Same-origin project access required')
+            await reject_ws(websocket,stage='handshake',code='project_access_denied',close_code=1008,reason='Same-origin project access required')
             return
         pid=websocket.query_params.get('project_id')
         jobs=getattr(websocket.app.state,'feature_jobs',None)
         registry=getattr(websocket.app.state,'feature_registry',None)
         if not pid or jobs is None or registry is None:
-            await websocket.close(code=1008,reason='FeatureLab project scope missing')
+            await reject_ws(websocket,stage='authorization',code='feature_scope_missing',close_code=1008,reason='FeatureLab project scope missing')
             return
         try:
             registry.projects.require_native(pid,asset_id)
@@ -377,15 +526,24 @@ def create_native_bi_router(native: NativeBIService, legacy, settings, models=No
                 # Path is server-resolved from an authorized row; do not accept
                 # any user-provided SQL, identifier, or filesystem path.
                 path_sql=str(path).replace("'","''")
-                con.execute('''CREATE VIEW timepilot_feature_artifact AS
-                  SELECT ROW_NUMBER() OVER ()-1 AS "__tp_rowid", *
-                  FROM read_parquet('''+"'"+path_sql+"'"+''')''')
+                parquet_columns = [item[0] for item in con.execute(
+                    'DESCRIBE SELECT * FROM read_parquet(?)', [str(path)]).fetchall()]
+                # Older materialization plans have no system row ID; later
+                # plans may already retain one. Never publish duplicate names.
+                literal = "'" + path_sql + "'"
+                if '__tp_rowid' in parquet_columns:
+                    con.execute('CREATE VIEW timepilot_feature_artifact AS '
+                                'SELECT * FROM read_parquet(' + literal + ')')
+                else:
+                    con.execute('CREATE VIEW timepilot_feature_artifact AS '
+                                'SELECT ROW_NUMBER() OVER ()-1 AS "__tp_rowid", * '
+                                'FROM read_parquet(' + literal + ')')
                 server=create_timepilot_virtual_server(con)
                 await run_limited_websocket(websocket,server,connection=con)
         except ImportError:
-            await websocket.close(code=1011,reason='Perspective or DuckDB missing')
+            await reject_ws(websocket,stage='dependency',code='perspective_or_duckdb_missing',close_code=1011,reason='Perspective or DuckDB missing')
         except (KeyError,ValueError,NativeBIError):
-            await websocket.close(code=1008,reason='Feature artifact unavailable')
+            await reject_ws(websocket,stage='feature',code='artifact_unavailable',close_code=1008,reason='Feature artifact unavailable')
 
     @router.websocket('/linked/{asset_id}/versions/{version_id}/ws')
     async def linked_asset_perspective(websocket: WebSocket, asset_id: str, version_id: str):
@@ -461,7 +619,7 @@ def create_native_bi_router(native: NativeBIService, legacy, settings, models=No
         except KeyError:
             await websocket.close(code=1008, reason='Stream does not exist')
         except ImportError:
-            await websocket.close(code=1011, reason='Perspective Python dependency missing')
+            await reject_ws(websocket,stage='dependency',code='perspective_missing',close_code=1011,reason='Perspective Python dependency missing')
 
     @router.post('/assets/{asset_id}/derive-types', status_code=201)
     def derive_types(asset_id: str, payload: ConvertTypesRequest):

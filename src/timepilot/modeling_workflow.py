@@ -24,16 +24,18 @@ from uuid import UUID, uuid4
 import pandas as pd
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from timepilot.model_task_designer import describe_fields
 from timepilot.contracts import EvaluationSpec, TaskSpec
 from timepilot.data import DataValidationError, create_dataset, create_modeling_dataset, get_dataset, normalize_frame
 from timepilot.modeling_adapters import (ResamplingSpec, EventSpec, RegimeSpec, MechanismSpec,
-                                          ClassificationSpec, prepare_observations)
+                                          ClassificationSpec, prepare_observations, inspect_device_ood_folds)
 from timepilot.industrial_plugins import temporal_classification_split
 from timepilot.generic_assets import GenericAssetStore
 from timepilot.data_platform import DataPlatform
 from timepilot.native_bi import FilterSpec, NativeBIError, QuerySpec, compile_query
 from timepilot.projects import ProjectError, now
 from timepilot.storage import atomic_json, sha256_file, sha256_bytes, load_json
+from timepilot.model_source_lineage import build as build_source_lineage, publish as publish_source_lineage
 
 MODEL_MAX_ROWS = 200_000
 PROFILE_SAMPLE_ROWS = 2400
@@ -95,12 +97,15 @@ class ForecastPlan(Strict):
     duplicate_policy: Literal['reject'] = 'reject'
     gap_policy: Literal['reject'] = 'reject'
     feature_policy: Literal['target_history_only','historical_observed','snapshot_at_decision'] = 'target_history_only'
+    validation_strategy: Literal['time_forward','leave_device_out'] = 'time_forward'
     resampling: ResamplingSpec = Field(default_factory=ResamplingSpec)
     mechanism: MechanismSpec = Field(default_factory=MechanismSpec)
     classification: ClassificationSpec | None = None
 
     @model_validator(mode='after')
     def candidates(self):
+        if self.validation_strategy=='leave_device_out' and self.task_kind!='classification':
+            raise ValueError('Device OOD currently requires the supported global binary classifier')
         if self.task_kind == 'classification' and self.classification is None:
             raise ValueError('分类任务必须设置正负标签、标签成熟时间和评估协议')
         if self.task_kind == 'classification' and self.feature_policy != 'snapshot_at_decision':
@@ -350,7 +355,7 @@ class ModelingWorkbench:
                 atomic_json(target,result)
         return result
 
-    def suggestions(self,pid,asset_id,version='base') -> dict:
+    def suggestions(self,pid,asset_id,version='base',business_goal='') -> dict:
         profile=self.profile(pid,asset_id,version)
         mapping=profile['recommendation']
         proposals=[]
@@ -372,7 +377,8 @@ class ModelingWorkbench:
             proposals.append({'task_kind':'anomaly_detection','title':'工况异常探索',
                 'status':'plugin_missing','reason':'保留异常检测研究任务契约；尚无可运行插件，不能直接提交'})
         return {'asset_id':asset_id,'version_id':version,'profile':profile,
-                'proposals':proposals[:3]}
+                'proposals':proposals[:3],
+                'task_designer':describe_fields(profile,business_goal)}
 
     def _selection(self,pid,request:CreateModelingDraft) -> tuple[dict,dict]:
         source=self._source(pid,request.asset_id,request.version_id)
@@ -658,6 +664,8 @@ class ModelingWorkbench:
             try:
                 prepared,audit=prepare_observations(frame,mapping=mapping,plan=plan)
                 series_count=int(prepared['series_id'].nunique())
+                if plan.validation_strategy=='leave_device_out' and series_count<plan.validation_windows:
+                    blockers.append('Cross-device holdout requires at least one distinct device per fold')
                 feature_cols=audit['feature_columns'] if plan.feature_policy!='target_history_only' else []
                 audit_preview={k:v for k,v in audit.items() if k!='buckets'}
                 audit_preview['bucket_count']=len(audit.get('buckets',[]))
@@ -696,6 +704,10 @@ class ModelingWorkbench:
                 else:
                     split=temporal_classification_split(prepared,plan.classification)
                     class_preview={k:v for k,v in split['audit'].items()}
+                    if plan.validation_strategy=='leave_device_out' and series_count>=plan.validation_windows:
+                        ood=inspect_device_ood_folds(split,folds=plan.validation_windows)
+                        class_preview['device_ood_preflight']=ood
+                        blockers.extend(ood['blockers'][:20])
                     coverage={'start':str(prepared['timestamp'].min()),'end':str(prepared['timestamp'].max())}
             except (DataValidationError, ValueError, TypeError, OverflowError) as exc:
                 blockers.append('数据适配失败：'+str(exc)[:480])
@@ -806,11 +818,24 @@ class ModelingWorkbench:
             artifact_folder=self.catalog.engine.settings.home/'datasets'/manifest.dataset_id
             audit_file=artifact_folder/'resampling_audit.json'
             atomic_json(audit_file,audit)
+            # Capture exact materialized float precision and source selection
+            # row mapping. Every selected record must be consumed once.
+            _,normalized_snapshot=get_dataset(self.catalog.engine.store,self.catalog.engine.settings,
+                                             manifest.dataset_id)
+            lineage_scope={'asset_id':doc['asset_id'],'version_id':doc['version_id'],
+                           'selection_hash':doc['selection']['selection_hash'],
+                           'selected_input_sha256':content_sha}
+            lineage=build_source_lineage(frame,normalized_snapshot,mapping,plan,scope=lineage_scope)
+            lineage_sha=publish_source_lineage(artifact_folder,lineage)
             provenance={'draft_id':did,'project_id':pid,'selection':doc['selection'],
                         'mapping':doc['mapping'],'plan':doc['plan'],'plan_hash':check['plan_hash'],
                         'selected_input_sha256':content_sha,
                         'dataset_snapshot_sha256':manifest.snapshot_sha256,
                         'resampling_audit_sha256':sha256_file(audit_file),
+                        'lineage_schema':'model-selected-row-lineage-v1',
+                        'lineage_sha256':lineage_sha,
+                        'lineage_scope':lineage_scope,
+                        'lineage_normalized_rows':len(normalized_snapshot),
                         'feature_columns':features,'data_contract':contract}
             atomic_json(artifact_folder/'modeling_provenance.json',provenance)
             doc.update(dataset_id=manifest.dataset_id,materialization=provenance,
@@ -818,8 +843,9 @@ class ModelingWorkbench:
             self._store_draft(doc)
             return doc
 
-    def submit(self,pid,did):
+    def submit(self,pid,did,*,budget_profile="15m"):
         self.catalog.writable(pid)
+        self.catalog.engine.budgets.plan(budget_profile)
         with self._lock:
             doc=self.draft(pid,did)
             if doc.get('run_id'):
@@ -842,7 +868,9 @@ class ModelingWorkbench:
                 model_candidates=plan.model_candidates,approved=True,
                 evaluation=EvaluationSpec(validation_windows=plan.validation_windows,
                   test_horizon=plan.horizon_steps, min_history=plan.min_history,
-                  primary_metric=plan.primary_metric))
+                  primary_metric=plan.primary_metric,
+                  protocol_id=('device_forward_holdout_v1' if plan.validation_strategy=='leave_device_out'
+                               else 'rolling_holdout_v1')))
             manifest,frame=get_dataset(self.catalog.engine.store,self.catalog.engine.settings,doc['dataset_id'])
             if manifest.source_sha256!=doc['materialization']['selected_input_sha256']:
                 raise ModelingError('训练数据和审核时的筛选记录不同')
@@ -853,7 +881,13 @@ class ModelingWorkbench:
                    if r.task_id==task.task_id and r.dataset_id==doc['dataset_id']]
             if len(prior)>1:
                 raise ModelingError('发现多个同任务运行，需要人工核对后再继续提交')
-            run_id=prior[0].id if prior else self.catalog.engine.queue(task,doc['dataset_id'])
+            run_id=prior[0].id if prior else self.catalog.engine.queue(
+                task,doc['dataset_id'],budget_profile=budget_profile)
+            if prior:
+                existing_budget=self.catalog.engine.budgets.detail(run_id)
+                if (existing_budget['status']=='frozen' and
+                        existing_budget['budget']['budget_profile']!=budget_profile):
+                    raise ModelingError('Existing temporal run has a different frozen budget')
             self.catalog.attach_run(pid,run_id)
             task_sha=self.digest(task.model_dump(mode='json'))
             with self.catalog._db() as db:

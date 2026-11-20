@@ -16,7 +16,7 @@ bash TIMEPILOT.sh source-repair
 bash TIMEPILOT.sh source-check
 ```
 
-`source-repair` 只处理 `.dockerignore`、`.env.example`、`.github/workflows/ci.yml`、`.gitignore`、`.python-version` 五项。脚本先根据 `docs/RELEASE_MANIFEST.json` 对恢复源逐个进行 SHA256/长度核验；对被修改的文件，会先原样备份至 `$TIMEPILOT_HOME/source_repair_backups/repair_*/`，才原子替换。用户私有 `.env`、SQLite、Parquet 和其他源码不会被改写。发现其他文件校验失败时须从完整可信压缩包修复。
+`source-repair` 只处理 `.dockerignore`、`.env.example`、`.github/workflows/ci.yml`、`.github/workflows/offline-release.yml`、`.gitignore`、`.python-version` 六项。脚本先根据 `docs/RELEASE_MANIFEST.json` 对恢复源逐个进行 SHA256/长度核验；对被修改的文件，会先原样备份至 `$TIMEPILOT_HOME/source_repair_backups/repair_*/`，才原子替换。用户私有 `.env`、SQLite、Parquet 和其他源码不会被改写。发现其他文件校验失败时须从完整可信压缩包修复。
 
 随后在 **联网构建机器** 上执行一次：
 

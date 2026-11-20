@@ -207,7 +207,7 @@ def test_migration_v32_to_v33_preserves_existing_data(tmp_path):
             db.execute('DROP INDEX IF EXISTS idx_feature_advanced_artifacts')
             db.execute('UPDATE project_schema SET version=32')
             migrate(db)
-            assert db.execute('SELECT version FROM project_schema').fetchone()[0]==TARGET_SCHEMA==34
+            assert db.execute('SELECT version FROM project_schema').fetchone()[0]==TARGET_SCHEMA
             assert db.execute('SELECT COUNT(*) FROM projects').fetchone()[0]==before
             assert db.execute("SELECT name FROM sqlite_master WHERE name='feature_advanced_artifacts'").fetchone()
     finally:client.__exit__(None,None,None)

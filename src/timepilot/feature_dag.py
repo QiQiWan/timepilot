@@ -16,15 +16,18 @@ def ordered_features(spec:FeatureSpecV2,contract:DataContract):
         validate_operator(feature,supervised=bool(spec.task and spec.task.mode=='supervised'))
         for key in feature.input_field_ids:
             if key not in lookup and key not in feature_map:raise ValueError('不存在的字段或特征 ID：'+key)
-        for key in [feature.parameters.get('order_field_id'),*(feature.parameters.get('partition_field_ids') or [])]:
+        for key in [feature.parameters.get('order_field_id'),*(feature.parameters.get('partition_field_ids') or []),
+                    feature.parameters.get('reset_field_id'),feature.parameters.get('regime_field_id')]:
             if key and key not in lookup:raise ValueError('分区/排序字段必须引用源字段 ID')
     if spec.task and spec.task.mode=='supervised':
         field_ids=set(lookup)
-        required=[spec.task.prediction_time_field_id,spec.task.label_field_id,
-                  spec.task.label_available_at_field_id,*spec.task.entity_field_ids,*spec.task.group_field_ids]
+        required=[spec.task.label_field_id,*spec.task.entity_field_ids,*spec.task.group_field_ids]
+        if spec.task.split_kind in ('time','grouped_time'):
+            required.extend([spec.task.prediction_time_field_id,spec.task.label_available_at_field_id])
         if any(f not in field_ids for f in required):raise ValueError('监督任务引用未授权或不存在的字段')
-        if not contract.event_time_field_id or not contract.available_at_field_id:
-            raise ValueError('监督特征需要已确认的事件与可用时间数据契约')
+        if spec.task.split_kind in ('time','grouped_time') and (
+                not contract.event_time_field_id or not contract.available_at_field_id):
+            raise ValueError('时间监督特征需要已确认的事件与可用时间数据契约')
         # Decision time may be later than event time. The materialization
         # engine verifies event_time <= decision_time and available_at <=
         # decision_time over every row; historical windows remain ordered by

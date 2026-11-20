@@ -73,15 +73,18 @@ def test_project_import_layout_scope_not_cross_project(tmp_path):
         assert client.get(f'/api/v1/projects/{p[1]}/imports/{upload["import_id"]}/profile').status_code == 404
 
 
-def test_offline_startup_does_not_bootstrap_npm(monkeypatch):
-    # The startup gate must never invoke npm installation or reach the network.
+def test_offline_startup_does_not_bootstrap_npm(tmp_path,monkeypatch):
+    # Explicit offline start must fail closed before any npm or network call.
     import importlib.util
     spec = importlib.util.spec_from_file_location('ensure_native_bi_test', ROOT/'scripts/ensure_native_bi.py')
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     monkeypatch.setattr(module, 'readiness', lambda: ({'ready': False, 'problems': ['missing built JS/WASM']}, False, ['duckdb'], False))
     monkeypatch.setattr(module.shutil, 'which', lambda x: '/bin/npm' if x == 'npm' else None)
-    monkeypatch.setattr(sys, 'argv', ['ensure_native_bi.py', '--auto-build'])
+    monkeypatch.setattr(module, 'FRONTEND', tmp_path/'frontend')
+    monkeypatch.setenv('TIMEPILOT_OFFLINE', '1')
+    monkeypatch.setattr(module.subprocess, 'run', lambda *a, **k: (_ for _ in ()).throw(AssertionError('npm invoked offline')))
+    monkeypatch.setattr(sys, 'argv', ['ensure_native_bi.py', '--auto-build', '--auto-bootstrap'])
     assert module.main() == 2
 
 
@@ -90,7 +93,9 @@ def test_standalone_launcher_does_not_provision_env():
     launcher = (ROOT/'scripts/launcher.py').read_text()
     ensure = (ROOT/'scripts/ensure_native_bi.py').read_text()
     assert 'exec python ' in shell
-    assert "'--status-only'" in launcher and "'--auto-build'" not in launcher
+    assert "bi_flags=['--status-only']" in launcher
+    assert "TIMEPILOT_AUTO_BUILD_BI" in launcher
+    assert "bi_flags=['--auto-build']" in launcher
     assert "'TIMEPILOT_SKIP_NPM_INSTALL'" in ensure
     forbidden = ('conda create', 'python -m venv', 'pip install', 'npm install')
     for text in (shell, launcher):

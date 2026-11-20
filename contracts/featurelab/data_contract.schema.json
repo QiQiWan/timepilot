@@ -66,7 +66,9 @@
             "regime",
             "label",
             "batch_key",
-            "record_id"
+            "record_id",
+            "order_index",
+            "elapsed_time"
           ],
           "title": "Role",
           "type": "string"

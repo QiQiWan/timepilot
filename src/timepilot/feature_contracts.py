@@ -6,11 +6,12 @@ operator capabilities and published source fingerprints are checked by services.
 from __future__ import annotations
 
 from typing import Literal
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator, model_serializer
 import hashlib
 import json
 import re
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+from timepilot.feature_industrial_transfer import IndustrialTransferPolicy
 
 
 def validate_iana_timezone(value: str | None) -> str | None:
@@ -49,7 +50,7 @@ class FieldContract(StrictModel):
     physical_type: str = Field(min_length=1, max_length=100)
     display_name: str | None = Field(default=None, max_length=160)
     semantic_type: Literal['unknown','numeric','string','datetime','category','id','boolean','event','target'] = 'unknown'
-    role: Literal['unspecified','entity_key','event_time','available_at','ingested_at','prediction_time','value','regime','label','batch_key','record_id'] = 'unspecified'
+    role: Literal['unspecified','entity_key','event_time','available_at','ingested_at','prediction_time','value','regime','label','batch_key','record_id','order_index','elapsed_time'] = 'unspecified'
     unit: str | None = Field(default=None, max_length=40)
     timezone: str | None = Field(default=None, max_length=80)
     source_location: str | None = Field(default=None, max_length=240)
@@ -128,22 +129,50 @@ class TaskSpecV2(StrictModel):
     label_field_id: str | None = None
     label_time_field_id: str | None = None
     label_available_at_field_id: str | None = None
-    split_kind: Literal['time','grouped_time'] = 'time'
+    split_kind: Literal['time','grouped_time','kfold','stratified','group'] = 'time'
     group_field_ids: list[str] = Field(default_factory=list)
+    # Explicit attestation that the static observations, predictors and labels
+    # are valid for the proposed decision. Never inferred from missing timestamps.
+    static_independence_confirmed: bool = False
     n_splits: int = Field(default=3, ge=2, le=10)
     purge_rows: int = Field(default=0, ge=0, le=100000)
     metrics: list[str] = Field(default_factory=lambda: ['recall','precision','pr_auc'])
 
     @model_validator(mode='after')
     def time_guard(self):
-        if self.mode == 'supervised':
-            if not self.prediction_time_field_id or not self.label_field_id or not self.label_available_at_field_id:
-                raise ValueError('监督任务必须具有决策时点、标签列及标签可用时间')
-            if self.task_type == 'profile':
-                raise ValueError('监督任务必须指定预测或分类目标')
+        if self.mode != 'supervised':
+            return self
+        if self.task_type == 'profile' or not self.label_field_id:
+            raise ValueError('监督任务必须指定目标类型与已确认标签')
+        if self.split_kind in ('time', 'grouped_time'):
+            if not self.prediction_time_field_id or not self.label_available_at_field_id:
+                raise ValueError('时间监督任务必须提供真实预测时点与标签可用时间')
             if self.split_kind == 'grouped_time' and not self.group_field_ids:
                 raise ValueError('分组时间切分要求实体或批次分组字段')
+            if self.static_independence_confirmed:
+                raise ValueError('时间监督任务不得混用静态独立性确认')
+        else:
+            if not self.static_independence_confirmed:
+                raise ValueError('静态监督评价必须由用户确认样本独立性和输入特征的决策时可用性')
+            if self.prediction_time_field_id or self.label_available_at_field_id or self.label_time_field_id:
+                raise ValueError('静态评价不接受伪造的预测/标签时间；请选择时间验证协议')
+            if self.purge_rows:
+                raise ValueError('静态样本不适用按时间删减训练行的 purge_rows')
+            if self.split_kind == 'group':
+                if not self.group_field_ids or not set(self.entity_field_ids).issubset(self.group_field_ids):
+                    raise ValueError('分组静态验证必须覆盖所有已声明的实体键')
+            elif self.group_field_ids or self.entity_field_ids:
+                raise ValueError('存在设备/批次实体时应使用分组验证，不得随机拆散同一实体')
         return self
+
+    @model_serializer(mode='wrap')
+    def serialize_compatibly(self, handler):
+        # Preserve historical time-task spec SHA256 and signed artifacts. The
+        # new field is included in the digest of static tasks only.
+        result = handler(self)
+        if self.split_kind in ('time', 'grouped_time'):
+            result.pop('static_independence_confirmed', None)
+        return result
 
 
 OUTPUT_NAME = re.compile(r'[A-Za-z_][A-Za-z0-9_]{0,63}\Z')
@@ -221,6 +250,7 @@ class EvaluationProtocol(StrictModel):
     search: AutoSearchPolicy = Field(default_factory=AutoSearchPolicy)
     slices: SlicePolicy = Field(default_factory=SlicePolicy)
     models: list[Literal['linear','forest']] = Field(default_factory=lambda: ['linear'], min_length=1, max_length=2)
+    industrial_transfer: 'IndustrialTransferPolicy | None' = None
 
     @model_validator(mode='after')
     def validate_settings(self):
@@ -228,9 +258,19 @@ class EvaluationProtocol(StrictModel):
             raise ValueError('评价模型不能重复')
         if self.task.mode != 'supervised' and (self.search.enabled or 'forest' in self.models):
             raise ValueError('无标签探索任务不支持有监督自动搜索或模型拟合')
-        if self.search.enabled and self.task.split_kind == 'grouped_time':
-            raise ValueError('分组时间切分暂不支持自动搜索：内层验证必须另行实施独立设备/批次分组以防止泄漏')
+        if self.industrial_transfer is not None and self.search.enabled:
+            raise ValueError('独立设备/工况留出评价禁止同时进行自动特征搜索，以免测试结果参与调参')
+        if self.search.enabled and self.task.split_kind not in ('time',):
+            raise ValueError('分组时间切分暂不支持自动搜索；静态/分组任务需实现独立内层验证后才能启用')
         return self
+
+    @model_serializer(mode='wrap')
+    def serialize_compatibly(self, handler):
+        # Keep v0.35.1 protocols byte-for-byte compatible when unused.
+        result=handler(self)
+        if self.industrial_transfer is None:
+            result.pop('industrial_transfer', None)
+        return result
 
 
 class PlanRequest(StrictModel):

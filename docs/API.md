@@ -1,3 +1,72 @@
+# v0.39.5 模型评价与结果诊断接口
+
+在现有 `GET/POST /api/v1/projects/{pid}/model-tasks/{task_id}/execution` 上，新增 `GET .../execution/diagnostics?model=forest&dimension=month&value=2024-03`：返回审批/来源/结果 SHA 核验后的当前验证分折指标、回归误差或混淆矩阵、验证集分组切片与最佳模型的末折置换贡献。参数限定 `model=baseline|linear|forest` 和 `dimension=month|device`。`GET .../execution/report` 同步增加逐 X 时间账本、预算、逐折明细、切片、修订/数据签名及不可验证边界。无可信折级产物的旧时序执行器返回 `legacy_aggregate_only`；不得补造折数据。
+
+使用细节及验收记录见 [v0.39.4—v0.39.5 说明](V0394_V0395_TIME_AUDIT_AND_MODEL_WORKBENCH.md)。
+
+---
+
+# TimePilot v0.37.7 当前 API 概要
+
+v0.37.5–v0.37.7 新增 `GET /feature-lab/data-analysis/chart-capabilities`、支持 Pearson/Spearman 的数据概览以及统一类别统计；非法图表参数返回 422，运行异常返回带 `TP-` 诊断编号的 500。
+
+v0.37.1 增加仅本地开发模式可访问的 `GET /api/v1/native-bi/ws-status?tp_trace=...`，返回连接数和本追踪编号的 WS 关闭阶段与代码；企业模式下返回 403。原始与特征表共享同一来源资产的连接；详见 `FEATURELAB_V0371_BI_REPAIR_AND_QA.md`。
+
+v0.37.0 的工业数据来源/时点字段契约和真实数据验收通过 `scripts/featurelab370_real_data.py` 提供命令行接口，当前**未新增**工业验收专用 HTTP API。标准化 CSV 可使用现有项目数据导入 API，禁止对未核实的标签回执时间自动补全。具体见 `docs/FEATURELAB_V0370_INDUSTRIAL_ACCEPTANCE.md`。
+
+主入口 `/api/v1/projects`，分析 `/api/v1/projects/{pid}/feature-lab`；新增加 `GET /api/v1/system/logs` 和 `/download?format=jsonl|txt` 只读日志接口，本地模式允许访问，企业模式仅租户管理员可访问；查询/导出有限流与日志脱敏。完整签名以运行时 `/docs` 为准。
+
+## v0.33.2 / v0.33.1 特征工程实测图表接口
+
+`GET /api/v1/projects/{pid}/feature-lab/analysis/sessions/{sid}/candidates/{cid}/chart?mode=distribution|series|category|group|auto`
+
+返回来自实际 DuckDB 特征计算视图的聚合点位。`mode=auto` 依据候选和已确认字段自动选择。响应含 `source_sha256`、`version_id`、`contract_revision`、`candidate_fingerprint`、`quality`、`points` 和采样范围；旧版本、来源失效及不适用的字段组合会被阻断或返回 `not_applicable`。新算子 `category.is_value` 仅接受已确认的普通类别字段和标量类别值。正式使用请按 `/docs` OpenAPI 的实际定义调用。
+
+---
+
+## v0.32.4 旧配方审计 API
+
+- `GET /api/v1/projects/{pid}/feature-lab/sets/temporal-audits?asset_id={aid}`：当前项目数据资产的历史窗口只读审计汇总。
+- `GET /api/v1/projects/{pid}/feature-lab/sets/{sid}/temporal-audit`：单份特征集的风险证据，`risk=high` 时禁止正式发布。
+- 自动会话响应新增只读 `next_action`，按实际状态提示复核、物化、评价等后续操作。
+
+---
+
+
+# TimePilot v0.33.3｜FeatureLab API 概要（保留原会话和交付接口）
+
+以服务启动后的 `/docs` OpenAPI 为准。接口以项目 ID 做隔离，实际读写权限由当前本地/企业安全模式决定；历史 v0.9.0 文档关于“完全无认证”的说明**不适用于所有当前部署模式**，不得据此开放公网服务。
+
+接口前缀：`/api/v1/projects/{pid}/feature-lab`。
+
+| 方法 | 端点后缀 | 作用/约束 |
+|---|---|---|
+| POST | `/analysis/sessions` | 创建自动分析，输入 `asset_id`、目标、预算、请求 ID；固定受控工具流程 |
+| GET / POST | `/analysis/sessions/{sid}` / `/analysis/sessions/{sid}/advance` | GET reads persisted state; POST is legacy compatibility. Embedded worker now continues stages independently. |
+| POST | `/analysis/sessions/{sid}/retry` | Explicit owner/editor-authorized retry: `{ "expected_revision": integer }`; failed jobs only; stale sources and corrupted successes are blocked. |
+| PUT | `/analysis/sessions/{sid}/selection` | 审核候选选择；乐观锁 `expected_revision` |
+| GET | `/analysis/sessions/{sid}/agent` | 有界模型规划、工具回执与证据解释；不包含原始密钥 |
+| GET | `/analysis/sessions/{sid}/supervision-options` | 已确认标签、预测时点、独立标签可用时间、静态任务可用性 `static_eligible` 与分组切分建议 |
+| POST | `/analysis/sessions/{sid}/save-set` | 明确保存 FeatureSet；可传 `supervision` 结构但必须 `confirm=true` |
+| POST | `/analysis/sessions/{sid}/accept-and-run` | 人工确认后保存 FeatureSet 草稿并排队物化；重试幂等，禁止模型自动触发 |
+| POST | `/analysis/sessions/{sid}/materialize` | 人工创建正式物化任务；真实产物校验后自动提交评价 |
+| GET | `/analysis/sessions/{sid}/delivery` | 来源、配方、物化 Parquet、模型评价、BI 同源状态及 SHA256 |
+| POST | `/analysis/sessions/{sid}/viewer-receipt` | 仅保存客户端双面板回执；不替代独立浏览器验收 |
+| GET | `/analysis/sessions/{sid}/report` | 含 Markdown、UTF-8 字节 SHA256、同源交付清单的报告 |
+
+**新增 P0 顺序门禁：**仅已确认的 `order_index` 或真实事件时间可用于自动时序窗口；多设备按已确认实体键分组，真实数据排序键缺失/重复将拒绝编译执行；独立样本使用逐行数值算子。
+
+**字段契约：**静态 K 折需有已确认数值标签以及用户的 `static_independence_confirmed=true` 明示确认；同一设备/批次多条记录必须使用 `split_kind=group` 且明确全部实体键。时间预测继续要求已确认设备键、事件时间、过程数据 `available_at`、预测时点、标签及独立标签 `label_available_at`；禁止把整数记录序号 `Time` 冒充真实日历时间。
+
+**v0.33.2 评价协议：** `TaskSpecV2.split_kind` 支持 `time / grouped_time / kfold / stratified / group`。静态配方禁止所有窗口算子、标签/编号/时间输入与未确认的输入字段。`EvaluationProtocol.search.enabled` 暂只在非分组时间任务允许；静态和分组时间搜索必须待实现折内约束验证后才能开启。完整结果增加 `split_manifest_sha256`、`paired_comparison`（仅同折差值）、`selection_stability`（仅训练折集合）和按真实可用标签过滤后的 `train_rows_sha256`。
+
+**安全边界：**模型只能建议目标、字段、模板、合格候选排序和已存在证据 ID，不能请求执行任意 SQL/Python、跨项目读取、自动保存或发布；失败/无 API 时使用规则引擎。`delivery.production_verified` 在源码工作流内始终为 `false`，必须通过独立现场发布门禁。
+
+
+---
+
+## 历史版本说明（保留供追溯；操作请以上文为准）
+
 # TimePilot REST API v0.9.0（包含历史接口）
 
 API 包含基础模型任务及 BI/AI 能力。启动服务后浏览器打开 `http://127.0.0.1:8000/docs` 查看 Swagger/OpenAPI。所有示例均为本地运行；当前 API 尚未认证，严禁映射公网。
@@ -78,7 +147,7 @@ curl -X POST http://127.0.0.1:8000/api/v1/datasets/upload \
 | `GET` | `/api/v1/bi/tables/{id}/export.xlsx` | 导出数据表为 Excel |
 | `GET` | `/api/v1/bi/reports/{id}/export.xlsx` | 导出已保存分析报表为 Excel |
 
-JSON 结构和边界见 [`BI_WORKFLOW_V040.md`](BI_WORKFLOW_V040.md)。完整自动生成接口文档在 `/docs`。所有本地管理和写入接口暂未建设正式权限体系，请仅在可信研发环境使用。
+JSON 结构和边界见 历史 BI 工作流说明（原 `BI_WORKFLOW_V040.md` 未纳入当前发行包；请以 `/docs` 为准）。完整自动生成接口文档在 `/docs`。所有本地管理和写入接口暂未建设正式权限体系，请仅在可信研发环境使用。
 
 ## v0.5.0 原生 BI（DuckDB / Parquet）
 
@@ -198,3 +267,48 @@ curl -s -X POST http://127.0.0.1:8000/api/v1/native-bi/query \
 - `GET /api/v1/projects/{pid}/imports/{iid}/plans` — 列出可恢复的语义确认方案。
 
 以上端点均需现有项目关联；完整数据表和可视化仍需访问正式 BI。模型列角色建议只在人工批准后用于确定性转换。
+
+
+## FeatureLab v0.32.0 automatic analysis
+
+Root: `/api/v1/projects/{project_id}/feature-lab`. All routes use existing project ACLs and actor scope.
+
+- `GET /time-basis/infer?asset_id=&version_id=base` suggests calendar/index/elapsed roles, with evidence and confidence.
+- `POST /time-basis/accept` confirms a numerical `order_index` or `elapsed_time` with contract revision precondition; no direct datetime casting.
+- `GET /analysis/latest?asset_id=&version_id=base` returns the last actor-owned analysis.
+- `POST /analysis/sessions` creates an idempotent analysis using `asset_id, version_id, goal, task_hint, budget, request_id`.
+- `GET /analysis/sessions/{id}` loads durable, source-fingerprint-pinned state.
+- `POST /analysis/sessions/{id}/advance` is compatibility-only; the embedded server worker now automatically advances completed jobs. Poll read-only `GET` for progress.
+- `PUT /analysis/sessions/{id}/selection` requires expected revision and verified candidate IDs.
+- `POST /analysis/sessions/{id}/save-set` saves only the current reviewed selection into a new FeatureSet draft.
+- `POST /analysis/sessions/{id}/materialize` starts the existing full materialization job after draft creation.
+- `GET /analysis/sessions/{id}/report` returns source-pinned Markdown quality findings.
+- `POST /analysis/sessions/{id}/explain` returns rule evidence by default, or optional aggregate-only model explanation.
+
+No `analysis` endpoint auto-approves publication or claims supervised predictive improvement without verified labels and PIT task contracts.
+
+
+### v0.32.1 自动特征 Agent 证据接口
+
+`GET /api/v1/projects/{pid}/feature-lab/analysis/sessions/{sid}/agent`
+读取当前操作人、项目范围内的智能规划、固定工具序列和安全回执。
+响应包含 `source_sha256`、`contract_revision`、`stale`、`status`、`agent.plan`、`agent.trace`、
+`agent.candidate_adjustment`、`explanation`；不包含原始数据行、模型 API 凭证及完整提示词。
+沿用原 `/analysis/sessions` 创建、推进、筛选、保存与物化接口；这些写操作仍由用户显式触发。
+模型建议仅能控制经契约校验的任务目标、允许字段和算子模板，并且不能指向越权工具。
+
+
+### v0.37.2 多维数据仪表盘
+
+`POST /api/v1/projects/{pid}/feature-lab/data-analysis/dashboard` 与 `/data-analysis/dashboard/chart`。字段 ID、版本、源 SHA256、契约修订和参数化筛选均必需按实际权限校验。请求示例与数值定义见 `FEATURELAB_V0372_DASHBOARD_QA.md`。
+
+
+### v0.37.3 服务端证据与导出
+
+`POST /api/v1/projects/{pid}/feature-lab/data-analysis/dashboard` 的返回增加 `evidence_analysis`（每个数字绑定范围、来源、证据 ID；无证据为 `insufficient_evidence`）。
+
+`POST /api/v1/projects/{pid}/feature-lab/data-analysis/dashboard/report` 与上述 API 使用完全相同的 `DashboardQuery`，服务端对当前来源重新统计并只读返回 `markdown`、`report_sha256`、`source_sha256`、`scope_sha256` 和 `claim_ids`。不会接受客户端自行构造的统计结论，若来源失效或证据冲突则拒绝导出。
+
+`GET .../analysis/sessions/{sid}/candidates/{cid}/chart` 的 `explanation.evidence_analysis` 含分布、最大桶内极差、可比量纲的原始字段与派生特征桶均值比较、分组比较。
+
+`GET .../workspace/insights` 的 `model.variant_deltas` 仅在标签、同源产物及同折验证均可信时出现；保留负改善，不等同最终测试集或生产收益。

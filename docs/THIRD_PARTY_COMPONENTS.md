@@ -5,6 +5,7 @@
 | DuckDB | 服务端列式查询、CSV/Parquet 读取 | Python 包，`requirements.txt` | MIT |
 | Apache Arrow / PyArrow | 列式交换、Arrow IPC | Python 包，`requirements.txt` | Apache-2.0 |
 | Perspective 5.6.1 | WebAssembly 网格、透视和可视化 | 前端源码 + NPM 构建，未包含二进制 | Apache-2.0 |
+| MathJax 3 (SVG bundle) | 算法公式本地渲染，离线可用 | `src/timepilot/static/vendor/` 直接包含版本化 JS 和 Apache 许可证文件 | Apache-2.0 |
 | Vite 6.3.5 | Perspective 构建工具 | 开发构建依赖，不需要最终用户安装 | MIT |
 | AutoGluon TimeSeries 1.6.1 | 通用时序预测基线 | Python 包，需按其自身许可及模型权重许可证审核 | Apache-2.0（框架） |
 

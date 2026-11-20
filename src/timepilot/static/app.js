@@ -3,7 +3,7 @@
   'use strict';
   const API = '/api/v1';
   const root = document.getElementById('app');
-  const titles = {projects:'项目管理',overview:'工作台概览',new:'新建预测任务',datasets:'数据集管理',imports:'智能数据导入','data-assets':'统一数据资产',agent:'Agent 任务中心',runs:'运行记录',plugins:'模型与插件',bi:'BI 数据分析',settings:'系统设置',help:'使用指南'};
+  const titles = {projects:'项目管理',overview:'工作台概览',new:'新建预测任务',datasets:'数据集管理',imports:'智能数据导入','data-assets':'统一数据资产',agent:'Agent 任务中心',runs:'运行记录',plugins:'模型与插件',bi:'BI 数据分析',settings:'系统设置',logs:'系统日志',help:'使用指南'};
   let generalSettings = {ui_theme:'light', default_budget_seconds:180, assistant_mode:'suggest'};
   let datasets = [], runs = [], plugins = [], floatCollapsed = false, toastTimer, lastRoute = '', apiError = null, apiUnavailable = false;
   const E = value => String(value ?? '').replace(/[&<>"']/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]));
@@ -15,9 +15,13 @@
   const statusMap={queued:['等待执行','running'],running:['执行中','running'],succeeded:['已完成','success'],failed:['执行失败','failed'],cancel_requested:['取消请求中','review'],cancelled:['已取消','cancelled']};
   const statusBadge = s => {const [name,type]=statusMap[s]||[s,'']; return `<span class="badge ${type}">${E(name)}</span>`};
   function toast(msg) {const box=document.getElementById('toast');box.textContent=msg;box.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>box.classList.remove('show'),4200)}
-  async function req(url, opts={}) {const result=await fetch(API+url, opts); let data;try{data=await result.json()}catch{data=null}if(!result.ok){let detail=data?.detail||`HTTP ${result.status}`;if(Array.isArray(detail))detail=detail.map(x=>x.message||JSON.stringify(x)).join('；');
-    else if(detail&&typeof detail==='object')detail=detail.message||detail.code||JSON.stringify(detail);
-    throw new Error(String(detail))}return data}
+  async function req(url, opts={}) {if(typeof url!=='string'||!url.startsWith('/')||url.startsWith(API+'/'))throw new Error('API 路径须以单层 / 开头，不能包含重复 /api/v1 前缀：'+String(url).slice(0,80));const result=await fetch(API+url, opts); let data;try{data=await result.json()}catch{data=null}if(!result.ok){let detail=data?.detail||`HTTP ${result.status}`;if(Array.isArray(detail))detail=detail.map(x=>x.message||JSON.stringify(x)).join('；');
+    else if(detail&&typeof detail==='object'){
+      const diag=detail.diagnostic_id||'';
+      detail=(detail.message||detail.code||JSON.stringify(detail))+(diag?'（诊断：'+diag+'）':'');
+    }
+    if(result.status>=500&&!String(detail).includes('诊断：'))detail+='（请求：'+(result.headers?.get?.('X-Request-ID')||'未分配')+'）';
+    const failure=new Error(String(detail));failure.status=result.status;throw failure}return data}
   async function refresh(){
     const result=await Promise.allSettled([window.TIMEPILOT_ENTERPRISE?Promise.resolve([]):req('/datasets'),window.TIMEPILOT_ENTERPRISE?Promise.resolve([]):req('/runs'),req('/plugins'),window.TIMEPILOT_ENTERPRISE?Promise.resolve(generalSettings):req('/settings/general')]);
     if(result[0].status==='fulfilled')datasets=result[0].value;
@@ -35,7 +39,7 @@
     return apiError?`<div class="service-notice" role="alert"><div><strong>部分服务暂时无法访问</strong><p>${E(apiError)}。当前数据可能不完整，请检查后台运行状态后重新连接。</p></div><button class="button" type="button" data-action="refresh">重新连接</button></div>`:'';
   }
   function page(){return location.pathname.split('/').filter(Boolean)[0]||'projects'}
-  function navigate(path){if(path===location.pathname)return render();history.pushState({},'',path);return render()}
+  function navigate(path){if(path===location.pathname+location.search)return render();history.pushState({},'',path);return render()}
   function header(h,sub,action=''){return `<div class="page-heading"><div><h1>${h}</h1><p>${sub}</p></div>${action}</div>`}
   function cardEmpty(text,desc,button=''){return `<div class="empty"><div class="empty-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 3v18"/></svg></div><b>${text}</b><p>${desc}</p>${button}</div>`}
   function tableEmpty(){return '<tr><td colspan="5" class="muted" style="text-align:center;padding:30px">暂无记录</td></tr>'}
@@ -129,7 +133,7 @@
     const isNative=/^\/projects\/[^/]+\/bi\/native\/[^/]+/.test(location.pathname);
     window.TimePilotBIWorkspaceLayout?.mode(isNative);
     if(!isNative){window.TimePilotBIFloating?.leave();window.TimePilotBIConversations?.reset();}
-    document.getElementById('page-title').textContent=titles[current]||'运行详情';
+    document.getElementById('page-title').textContent=current==='projects'&&parts.length>1?'项目工作区':(titles[current]||'运行详情');
     document.querySelectorAll('[data-nav]').forEach(x=>x.classList.toggle('active',x.getAttribute('href')==='/'+current));
     document.getElementById('sidebar').classList.remove('open');
     await refresh();
@@ -156,9 +160,10 @@
     }
     if(current==='research'){await window.TimePilotResearch.render({root,req,toast,navigate,route:location.pathname});return}
     if(current==='agent'){await window.TimePilotAgentCenter.render({root,req,toast,navigate,route:location.pathname});return}
+    if(current==='logs'){await window.TimePilotSystemLogs.render({root,req,toast,navigate});return}
     if(current==='settings'){await window.TimePilotSettings.render({root,req,toast,navigate,route:location.pathname});return}
     const pages={new:newPage,runs:runsPage,plugins:pluginsPage,help:helpPage};
-    root.innerHTML=errorNotice()+(pages[current]||helpPage)()+`<div class="app-footer">TimePilot v0.24.6 · ${window.TIMEPILOT_ENTERPRISE?"企业受控模式":"本地研发环境"} · 数据来源与实验版本可追溯</div>`;
+    root.innerHTML=errorNotice()+(pages[current]||helpPage)()+`<div class="app-footer">TimePilot v0.37.9 · ${window.TIMEPILOT_ENTERPRISE?"企业受控模式":"本地研发环境"} · 数据来源与实验版本可追溯</div>`;
   }
   async function runDemo(){try{toast('正在创建合成数据示例…');const result=await req('/demo/bootstrap',{method:'POST'});toast('示例任务已提交，正在执行');navigate('/runs/'+result.run_id);await render()}catch(e){toast('示例执行失败：'+e.message)}}
   async function handleClick(event){const el=event.target.closest('[data-action]');if(!el)return;
@@ -231,16 +236,17 @@
     if(window.TimePilotProjects?.submit && event.target?.id?.startsWith('project-')){window.TimePilotProjects.submit(event);return;}
     if(window.TimePilotResearch?.submit && event.target?.id?.startsWith('research-')){window.TimePilotResearch.submit(event);return;}
     if(window.TimePilotAgentCenter?.submit && event.target?.id==='agent-job-form'){window.TimePilotAgentCenter.submit(event);return;}
-    if(window.TimePilotModeling?.submit && event.target?.id==='tp-modeling-form'){window.TimePilotModeling.submit(event);return;}
+    if(window.TimePilotModeling?.submit && ['tp-modeling-form','tp-modeling-general-form'].includes(event.target?.id)){window.TimePilotModeling.submit(event);return;}
     if(window.TimePilotNativeBI?.submit && event.target?.id?.startsWith('tp-native-')){window.TimePilotNativeBI.submit(event);return;}
     if(window.TimePilotSettings.handleSubmit && window.TimePilotSettings.handleSubmit(event,{root,req,toast,navigate}))return;
     handleSubmit(event);
   });
   document.addEventListener('input',event=>{
+    if(event.target?.matches?.('[data-modeling-search]')){window.TimePilotModeling?.change?.(event);return;}
     if(event.target?.id==='tp-field-search')window.TimePilotProjects?.change?.(event);
   });
   document.addEventListener('change',event=>{
-    if(window.TimePilotModeling?.change && event.target?.closest('#tp-modeling-form') && window.TimePilotModeling.change(event))return;
+    if(window.TimePilotModeling?.change && event.target?.closest('#tp-modeling-form, #tp-modeling-general-form') && window.TimePilotModeling.change(event))return;
     if(window.TimePilotFeatureV2UI?.change && event.target?.dataset.featureV2Change){window.TimePilotFeatureV2UI.change(event);return;}
     if(window.TimePilotFeatureLabUI?.change && ['select-asset','choose-kind'].includes(event.target?.dataset.feature)){window.TimePilotFeatureLabUI.change(event);return;}
     if(window.TimePilotProjectBI?.change && event.target?.id==='project-bi-version'){window.TimePilotProjectBI.change(event);return;}

@@ -26,8 +26,7 @@ def chrome_executable(*, environment: Mapping[str, str] | None = None,
     """Resolve an installed browser without invoking Playwright downloads."""
     env = os.environ if environment is None else environment
     system = sys.platform if platform is None else platform
-    overridden = (env.get('TIMEPILOT_CHROME_PATH') or
-                  env.get('TIMEPILOT_CHROMIUM_PATH') or '').strip()
+    overridden = (env.get('TIMEPILOT_CHROME_PATH') or '').strip()
     if overridden:
         candidate = Path(overridden).expanduser()
         if candidate.suffix.lower() == '.app':
@@ -36,6 +35,8 @@ def chrome_executable(*, environment: Mapping[str, str] | None = None,
             raise ChromeNotFoundError(
                 f'Chrome executable override does not exist: {candidate}. '
                 'Set TIMEPILOT_CHROME_PATH to the installed Chrome executable.')
+        if candidate.name.lower() not in {'google chrome', 'google-chrome', 'google-chrome-stable', 'chrome', 'chrome.exe'}:
+            raise ChromeNotFoundError('TIMEPILOT_CHROME_PATH must identify installed Google Chrome, not Chromium: '+str(candidate))
         return candidate.resolve()
 
     candidates: list[Path] = []
@@ -50,7 +51,7 @@ def chrome_executable(*, environment: Mapping[str, str] | None = None,
             if base:
                 candidates.append(Path(base) / 'Google' / 'Chrome' / 'Application' / 'chrome.exe')
     else:
-        for name in ('google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser'):
+        for name in ('google-chrome', 'google-chrome-stable'):
             found = shutil.which(name)
             if found:
                 candidates.append(Path(found))

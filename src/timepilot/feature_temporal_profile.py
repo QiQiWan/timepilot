@@ -1,8 +1,7 @@
-"""Evidence-backed industrial entity/time coverage diagnostics.
+"""Evidence-backed temporal topology diagnostics, including numeric record order.
 
-All SQL identifiers come from the project-scoped immutable FieldContract and
-are escaped via Native BI quoting. Values are not interpreted as timestamps
-until a confirmed datetime field and timezone exist.
+The order key and entity tuple are validated against the *entire* source.
+Import row position is only an audit field and never resolves duplicate keys.
 """
 from __future__ import annotations
 from timepilot.native_bi import quote_identifier
@@ -10,38 +9,55 @@ from timepilot.feature_contracts import digest
 
 
 def temporal_diagnostics(con, contract, view='__tp_effective'):
-    if contract.event_time_field_id is None:
-        return {'status': 'needs_review', 'reason': '没有已确认真实事件时间，仅支持记录顺序分析'}
-    by_id = {f.field_id:f for f in contract.fields}
-    field = by_id[contract.event_time_field_id]
-    if field.semantic_type != 'datetime' or field.confirmation != 'confirmed' or not contract.timezone:
-        return {'status': 'needs_review','reason': '真实时间字段或时区尚未确认'}
-    time = quote_identifier(field.source_name)
-    partition = [quote_identifier(by_id[x].source_name) for x in contract.entity_field_ids]
-    clauses = ', '.join(partition)
-    entity = f'PARTITION BY {clauses} ' if clauses else ''
-    ordering = f'{entity}ORDER BY {time}, "__tp_rowid"'
-    source_ordering = f'{entity}ORDER BY "__tp_rowid"'
-    query = f'''WITH t AS (SELECT {time} AS event_time,
-       LAG({time}) OVER ({ordering}) AS prev_time,
-       LAG({time}) OVER ({source_ordering}) AS previous_source_time
-       FROM {view})
-       SELECT COUNT(*) AS record_count,
-       COUNT(*) FILTER (WHERE event_time IS NULL) AS time_missing,
-       COUNT(*) FILTER (WHERE prev_time IS NOT NULL AND event_time=prev_time) AS duplicate_time,
-       COUNT(*) FILTER (WHERE previous_source_time IS NOT NULL AND event_time<previous_source_time) AS backwards_time,
-       MIN(date_diff('second',prev_time,event_time)) FILTER (WHERE prev_time IS NOT NULL) AS min_gap_seconds,
-       MAX(date_diff('second',prev_time,event_time)) FILTER (WHERE prev_time IS NOT NULL) AS max_gap_seconds
-       FROM t'''
-    r=con.execute(query).fetchone()
-    records,missing,duplicate,backwards,mn,mx=r
-    entity_count=None
-    if partition:
-        entity_count=int(con.execute(f'SELECT COUNT(*) FROM (SELECT DISTINCT {clauses} FROM {view})').fetchone()[0])
-    return {'status':'verified','scope':'full','record_count':int(records),
-      'missing_event_time_rows':int(missing),'duplicate_entity_timestamp_rows':int(duplicate),
-      'out_of_order_source_rows':int(backwards),'min_gap_seconds':mn,
-      'max_gap_seconds':mx,'entity_count':entity_count,'timezone':contract.timezone,
-      'evidence_sha256':digest({'contract_revision':contract.revision,'event_field_id':contract.event_time_field_id,
-                                'entity_field_ids':contract.entity_field_ids,'records':records,'missing':missing,
-                                'duplicates':duplicate,'min_gap_seconds':mn,'max_gap_seconds':mx})}
+    from timepilot.feature_topology import infer_topology
+    topo=infer_topology(contract)
+    if not topo['order_field_id']:
+        return {'status':'needs_review','scope':'full',
+                'reason':'; '.join(topo['reasons']),'safe_for_windows':False}
+    by_id={f.field_id:f for f in contract.fields}
+    field=by_id[topo['order_field_id']]
+    order=quote_identifier(field.source_name)
+    parts=[quote_identifier(by_id[fid].source_name) for fid in topo['partition_field_ids']]
+    groups=', '.join(parts)
+    clause='PARTITION BY '+groups+' ' if parts else ''
+    calendar=field.semantic_type=='datetime'
+    order_window=f'{clause}ORDER BY {order}, "__tp_rowid"'
+    source_window=f'{clause}ORDER BY "__tp_rowid"'
+    rows=f'''SELECT {order} AS order_value,
+      LAG({order}) OVER ({order_window}) AS previous_order,
+      LAG({order}) OVER ({source_window}) AS previous_source_order
+      FROM {view}'''
+    data=con.execute(f'''WITH t AS ({rows}) SELECT COUNT(*),
+      COUNT(*) FILTER (WHERE order_value IS NULL),
+      COUNT(*) FILTER (WHERE previous_order IS NOT NULL AND order_value=previous_order),
+      COUNT(*) FILTER (WHERE previous_source_order IS NOT NULL AND order_value<previous_source_order)
+      FROM t''').fetchone()
+    total,missing,duplicates,out_of_order=map(int,data)
+    missing_entities=0
+    if parts:
+        predicate=' OR '.join(part+' IS NULL' for part in parts)
+        missing_entities=int(con.execute(f'SELECT COUNT(*) FROM {view} WHERE {predicate}').fetchone()[0])
+    entity_count=int(con.execute(f'SELECT COUNT(*) FROM (SELECT DISTINCT {groups} FROM {view})').fetchone()[0]) if parts else None
+    min_gap=max_gap=None
+    if calendar:
+        min_gap,max_gap=con.execute(f'''WITH t AS ({rows}) SELECT
+            MIN(date_diff('second',previous_order,order_value)),
+            MAX(date_diff('second',previous_order,order_value)) FROM t''').fetchone()
+    reasons=list(topo['reasons'])
+    if missing:reasons.append('排序键包含空值')
+    if duplicates:reasons.append('同一实体出现重复排序键')
+    if missing_entities:reasons.append('设备分组字段包含空值')
+    return {'status':'verified','scope':'full','record_count':total,
+            'order_kind':'calendar_time' if calendar else 'record_sequence',
+            'order_field_id':topo['order_field_id'],
+            'partition_field_ids':topo['partition_field_ids'],
+            'missing_order_rows':missing,'duplicate_entity_order_rows':duplicates,
+            'missing_entity_rows':missing_entities,'out_of_order_source_rows':out_of_order,
+            'missing_event_time_rows':missing if calendar else None,
+            'duplicate_entity_timestamp_rows':duplicates if calendar else None,
+            'min_gap_seconds':min_gap,'max_gap_seconds':max_gap,
+            'entity_count':entity_count,'timezone':contract.timezone if calendar else None,
+            'safe_for_windows':not reasons,'reasons':reasons,
+            'evidence_sha256':digest({'revision':contract.revision,'order':topo['order_field_id'],
+              'partitions':topo['partition_field_ids'],'total':total,
+              'missing':missing,'duplicates':duplicates,'missing_entity':missing_entities})}

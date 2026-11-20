@@ -33,8 +33,9 @@ def create_modeling_router(service:ModelingWorkbench):
         except Exception as exc:fail(exc)
 
     @router.get('/assets/{aid}/suggestions')
-    async def suggest(pid:str,aid:str,version_id:str='base'):
-        try:return await asyncio.to_thread(service.suggestions,pid,aid,version_id)
+    async def suggest(pid:str,aid:str,version_id:str='base',business_goal:str=''):
+        if len(business_goal)>180:raise HTTPException(422,'业务目标最多 180 个字符')
+        try:return await asyncio.to_thread(service.suggestions,pid,aid,version_id,business_goal)
         except Exception as exc:fail(exc)
 
     @router.get('/drafts')

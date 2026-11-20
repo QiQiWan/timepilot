@@ -20,6 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from timepilot.data_schema import infer_field, summarize_schema
 from timepilot.generic_publish_checkpoint import materialize, cleanup, checkpoint_status
+from timepilot.project_migrations import catalog_startup_lock
 from timepilot.smart_import import (
     MAX_CANDIDATE_COLUMNS, SmartImportError, SmartImportService, _csv_rows,
     _column_names, _hash_file, _json_cell, _write_json,
@@ -133,28 +134,49 @@ class GenericAssetStore:
             raise SmartImportError('数据区域或版本编号无效')
         return self.root / import_id / candidate_id / version_id
 
+    def expected_version(self, import_id: str, candidate_id: str, request: PublishGeneral) -> dict:
+        """Read-only version fingerprint. Must match the actual publish identity.
+
+        No directories or metadata are created, and no external BI call runs.
+        Reviewers may inspect this before deciding what to do with a lost lease.
+        """
+        if not request.confirm:
+            raise SmartImportError('发布正式数据资产前，请确认表头及字段信息')
+        _, candidate, source = self._candidate(import_id, candidate_id, request.header_row)
+        return self._publish_fingerprint(candidate, source, request)
+
+    @staticmethod
+    def _publish_fingerprint(candidate, source, request):
+        columns = candidate['columns']
+        unknown = set(request.roles.values()) - set(columns)
+        if unknown:
+            raise SmartImportError('已确认的字段角色不在源表中：' + '、'.join(sorted(unknown)))
+        identity = {'source_sha256': source['sha256'], 'sheet': candidate['sheet'],
+                    'header_row': candidate['header_row'], 'columns': columns,
+                    'roles': request.roles, 'region': candidate.get('bbox'),
+                    'field_mapping': candidate.get('source_fields'),
+                    'parser': 'generic-publish-3' if candidate.get('bbox') else 'generic-publish-2'}
+        signature = hashlib.sha256(json.dumps(identity, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
+        return {'version_id': signature[:24], 'source_sha256': source['sha256'],
+                'identity_sha256': signature}
+
     def publish(self, import_id: str, candidate_id: str, request: PublishGeneral) -> dict:
         if not request.confirm:
             raise SmartImportError('发布正式数据资产前，请确认表头及字段信息')
         manifest, candidate, source = self._candidate(import_id, candidate_id, request.header_row)
+        fingerprint = self._publish_fingerprint(candidate, source, request)
         columns = candidate['columns']
-        unknown = set(request.roles.values()) - set(columns)
-        if unknown:
-            raise SmartImportError('已确认的字段角色不在源表中：'+'、'.join(sorted(unknown)))
-        # A role is only ever a human-confirmed mapping. Other columns retain
-        # unknown/unconfirmed semantic meaning, regardless of model proposals.
-        identity = {'source_sha256':source['sha256'],'sheet':candidate['sheet'],
-                    'header_row':candidate['header_row'],'columns':columns,
-                    'roles':request.roles,
-                    'region':candidate.get('bbox'),
-                    'field_mapping':candidate.get('source_fields'),
-                    'parser':'generic-publish-3' if candidate.get('bbox') else 'generic-publish-2'}  # Display name does not identify content}
-        signature = hashlib.sha256(json.dumps(identity, ensure_ascii=False,sort_keys=True).encode()).hexdigest()
-        version_id = signature[:24]
+        version_id = fingerprint['version_id']
+        signature = fingerprint['identity_sha256']
         target = self._base(import_id,candidate_id,version_id)
         document = target / 'manifest.json'
-        with self._lock:
+        # Multiple API/Worker processes can publish the same immutable CSV.
+        # Per-version file lock covers checkpoint writes and final manifest.
+        lockfile = self.root / '.publish-locks' / (signature + '.lock')
+        with self._lock, catalog_startup_lock(lockfile,timeout_seconds=300):
             if document.exists():
+                # A metadata file alone does not prove the CSV survived intact.
+                self.version_file(import_id,candidate_id,version_id)
                 return self.version(import_id,candidate_id,version_id)
             target.mkdir(parents=True, exist_ok=True)
             # Resume verified chunks only. The source file is SHA-checked by

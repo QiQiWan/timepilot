@@ -190,6 +190,25 @@ def check_existing_sqlite_metadata(db_url: str) -> dict:
 
 class Store:
     def __init__(self, db_url: str):
+        # BEGIN IMMEDIATE serializes CREATE TABLE, but it cannot protect the
+        # read-only PRAGMA quick_check and SQLAlchemy connect-time WAL setup
+        # happening BEFORE that BEGIN. Five fresh workers used to race here.
+        # Cover the full preflight -> connect -> DDL -> schema inspection in a
+        # single OS advisory lock for file-backed local SQLite only.
+        from contextlib import nullcontext
+        from sqlalchemy.engine import make_url
+        from timepilot.project_migrations import catalog_startup_lock
+        lock = nullcontext()
+        parsed = make_url(db_url)
+        if parsed.get_backend_name() == 'sqlite' and parsed.database and parsed.database != ':memory:' and \
+                parsed.query.get('uri') != 'true' and not parsed.database.startswith('file:'):
+            db_path = Path(parsed.database).expanduser().resolve()
+            lock = catalog_startup_lock(db_path.with_name(db_path.name + '.bootstrap.lock'),
+                                        timeout_seconds=90)
+        with lock:
+            self._initialize_metadata(db_url)
+
+    def _initialize_metadata(self, db_url: str):
         # create_all() may add tables before it discovers an incompatible old
         # column. Inspect existing user data with a READ-ONLY SQLite handle.
         self.startup_metadata = check_existing_sqlite_metadata(db_url)
@@ -205,7 +224,18 @@ class Store:
                 cur.execute("PRAGMA foreign_keys=ON")
                 cur.execute("PRAGMA busy_timeout=30000")
                 cur.close()
-        Base.metadata.create_all(self.engine)  # Local bootstrap only; never mutates existing columns.
+        # SQLAlchemy's create_all(checkfirst=True) is not atomic across processes:
+        # two fresh worker processes can both observe a missing table and then
+        # race in CREATE TABLE ("table datasets already exists"). Serialize
+        # the complete SQLite metadata bootstrap with BEGIN IMMEDIATE on the
+        # SAME connection used by create_all. This lock is released at commit
+        # even if startup fails, and is compatible with existing data/WAL.
+        if self.engine.dialect.name == 'sqlite':
+            with self.engine.begin() as conn:
+                conn.exec_driver_sql('BEGIN IMMEDIATE')
+                Base.metadata.create_all(conn)
+        else:
+            Base.metadata.create_all(self.engine)
         # create_all() does not apply ALTER TABLE to an older SQLite database.
         # Fail with one readable schema error instead of surfacing random SQL
         # OperationalError in unrelated endpoints after the server has started.

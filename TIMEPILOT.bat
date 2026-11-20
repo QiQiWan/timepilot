@@ -7,6 +7,8 @@ if errorlevel 1 (
   exit /b 2
 )
 set "PYTHONPATH=%CD%\src;%PYTHONPATH%"
+REM Single command on Windows: TIMEPILOT.bat start
+REM Automatically reuses or prepares Node 24 and builds Perspective when online.
 REM Launcher selects a stable user-local home, preserving existing runtimes.
 python scripts\launcher.py %*
 exit /b %ERRORLEVEL%

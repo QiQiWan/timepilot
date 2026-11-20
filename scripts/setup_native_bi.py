@@ -1,7 +1,7 @@
-"""Explicit one-time macOS/Linux Perspective frontend setup (build host only).
+"""First-run Perspective build with optional user-local Windows Node 24 bootstrap.
 
-Requires an already installed Node 24 and internet for npm ci.  Never installs
-Python, Conda, a browser or a database.  Preserves a previously good bundle.
+The command preserves verified JS/WASM, the Python/Conda environment and data;
+network access is required only for a missing Node/npm build or unsigned npm lock.
 """
 from __future__ import annotations
 
@@ -29,24 +29,16 @@ def run(args: list[str], *, cwd: Path, timeout: int) -> int:
 
 
 def lock_matches_package() -> bool:
-    if not LOCK.is_file():
-        return False
-    try:
-        package = json.loads((FRONTEND / 'package.json').read_text(encoding='utf-8'))
-        lock = json.loads(LOCK.read_text(encoding='utf-8'))
-        pinned = lock['packages']['']
-        return (lock.get('lockfileVersion') in {2, 3} and
-                lock.get('name') == package.get('name') and
-                pinned.get('version') == package.get('version') and
-                pinned.get('dependencies') == package.get('dependencies') and
-                pinned.get('devDependencies') == package.get('devDependencies'))
-    except (OSError, ValueError, TypeError, KeyError):
-        return False
+    # A top-level package.json comparison misses missing Rollup native
+    # optionalDependencies (the exact macOS/npm EUSAGE reported by the user).
+    from npm_lock_health import lock_issues
+    return not lock_issues(FRONTEND)
 
 
 def main() -> int:
     p = argparse.ArgumentParser(description='Build the verified offline Perspective JS/WASM on a connected build machine')
-    p.add_argument('--bootstrap-lock', action='store_true', help='Generate npm lock only if missing; requires network access')
+    p.add_argument('--bootstrap-lock', action='store_true', help='Repair only an unsigned missing/incomplete npm lock on first build')
+    p.add_argument('--auto-node', action='store_true', help='Use or download official Node 24 into a user-local cache on Windows')
     args = p.parse_args()
     sys.path.insert(0, str(ROOT / 'src'))
     from timepilot.native_bi_bundle import bundle_status, frontend_matches_bundle
@@ -56,9 +48,22 @@ def main() -> int:
         print('[BI SETUP] Existing validated Perspective JS/WASM bundle is current.')
         return run([sys.executable, 'scripts/ensure_native_bi.py', '--status-only'], cwd=ROOT, timeout=50)
 
+    if args.auto_node:
+        from node_toolchain import NodeToolchainError, ensure_node24
+        try:
+            runtime_env, runtime_version, origin = ensure_node24(
+                os.environ, allow_download=True)
+        except NodeToolchainError as exc:
+            print('[BI SETUP BLOCKED] ' + str(exc), file=sys.stderr)
+            print('Connect to nodejs.org for first build or set TIMEPILOT_NODE_HOME '
+                  'to an existing Node 24 directory. No Python/data changes were made.', file=sys.stderr)
+            return 2
+        # Only this Python process and descendants receive the adjusted PATH.
+        os.environ.update(runtime_env)
+        print('[BI SETUP] Node ' + runtime_version + ' selected (' + origin + ')', flush=True)
     if not shutil.which('node') or not shutil.which('npm'):
-        print('[BI SETUP BLOCKED] Node.js 24/npm are required on the build machine. '
-              'Use an existing Node 24 installation or install it separately.', file=sys.stderr)
+        print('[BI SETUP BLOCKED] Node.js 24/npm missing. '
+              'Use `TIMEPILOT.bat start` for automatic Windows setup.', file=sys.stderr)
         return 2
     try:
         node_version = subprocess.check_output(['node', '--version'], text=True, timeout=10).strip()
@@ -70,26 +75,36 @@ def main() -> int:
               '. Select an existing Node 24 installation (e.g. nvm use 24).', file=sys.stderr)
         return 2
 
-    if not LOCK.is_file():
+    from npm_lock_health import lock_issues, repair_lock, LockRepairError
+    initial_issues = lock_issues(FRONTEND)
+    if initial_issues:
+        print('[BI LOCK CHECK] ' + '; '.join(initial_issues[:12]), flush=True)
         if not args.bootstrap_lock:
-            print('[BI SETUP BLOCKED] package-lock.json missing. On an online build host run '
-                  '`bash TIMEPILOT.sh bi-setup --bootstrap-lock`.', file=sys.stderr)
+            print('[BI SETUP BLOCKED] npm lock is missing/incomplete. Run `TIMEPILOT.bat start` '
+                  'for automatic unsigned-lock bootstrap.', file=sys.stderr)
             return 2
-        if os.environ.get('TIMEPILOT_OFFLINE', '').lower() in {'1', 'true', 'yes'}:
-            print('[BI SETUP BLOCKED] Offline mode cannot generate a new npm lockfile.', file=sys.stderr)
+        try:
+            repaired = repair_lock(FRONTEND, root=ROOT)
+            print('[BI LOCK REPAIRED] ' + json.dumps(repaired, ensure_ascii=False), flush=True)
+        except (LockRepairError, OSError, ValueError) as exc:
+            print('[BI SETUP BLOCKED] Safe npm lock repair failed: ' + str(exc), file=sys.stderr)
+            print('Original lock and any existing verified JS/WASM were retained.', file=sys.stderr)
             return 2
-        code = run(['npm', 'install', '--package-lock-only', '--ignore-scripts',
-                    '--no-audit', '--no-fund', '--save-exact'], cwd=FRONTEND, timeout=300)
-        if code:
-            print('[BI SETUP BLOCKED] Registry download failed; no synthetic lockfile or WASM was written. '
-                  'Verify network/DNS and npm registry access.', file=sys.stderr)
-            return code
     if not lock_matches_package():
-        print('[BI SETUP BLOCKED] package-lock.json does not match package.json. '
-              'Review/restore the lockfile before building.', file=sys.stderr)
+        print('[BI SETUP BLOCKED] npm lock remains inconsistent after repair.', file=sys.stderr)
         return 2
 
     code = run([sys.executable, 'scripts/build_native_bi.py'], cwd=ROOT, timeout=900)
+    if code == 3 and args.bootstrap_lock and not initial_issues:
+        # npm ci can find omissions not detectable from the known Rollup/esbuild
+        # platform metadata. Repair at most once, never looping on EUSAGE.
+        try:
+            repaired = repair_lock(FRONTEND, root=ROOT)
+            print('[BI LOCK REPAIRED AFTER npm ci] ' + json.dumps(repaired, ensure_ascii=False), flush=True)
+        except (LockRepairError, OSError, ValueError) as exc:
+            print('[BI SETUP BLOCKED] Safe retry failed: ' + str(exc), file=sys.stderr)
+            return 2
+        code = run([sys.executable, 'scripts/build_native_bi.py'], cwd=ROOT, timeout=900)
     if code:
         return code
     status = bundle_status(bundle)

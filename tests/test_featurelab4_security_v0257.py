@@ -23,7 +23,13 @@ def test_failed_or_cancelled_or_corrupt_artifact_never_publishes(tmp_path):
     try:
         reg=app.state.feature_registry
         contract=app.state.feature_semantic.latest(pid,aid,'base')
-        rec=reg.create(pid,FeatureSpecV2.model_validate(_spec(contract)),'gate-create')
+        # This test isolates task/file integrity. Legacy implicit-row windows are
+        # independently blocked by v0.32.4's temporal audit, so use a row-wise
+        # formula to avoid conflating the two publication gates.
+        payload=_spec(contract)
+        payload['features']=[f for f in payload['features']
+                             if f['operator_id']=='arithmetic.binary']
+        rec=reg.create(pid,FeatureSpecV2.model_validate(payload),'gate-create')
         sid=rec['set_id']
         job=app.state.feature_jobs.create_run(pid,sid,'gate-job')
         rid=job['job_id']

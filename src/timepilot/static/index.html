@@ -6,24 +6,30 @@
   <meta name="color-scheme" content="light" />
   <link rel="icon" href="data:," />
   <title>时骁 TimePilot · 工业时序自主建模</title>
-  <link rel="stylesheet" href="/assets/styles.css?v=0.31.0" />
-  <link rel="stylesheet" href="/assets/experience.css?v=0.31.0" />
-  <link rel="stylesheet" href="/assets/bi-settings.css?v=0.31.0" />
-  <link rel="stylesheet" href="/assets/bi-grid.css?v=0.31.0" />
-  <link rel="stylesheet" href="/assets/bi-conversation.css?v=0.31.0" />
-  <link rel="stylesheet" href="/assets/feature-lab-ui.css?v=0.31.0" />
-  <link rel="stylesheet" href="/assets/feature-lab2.css?v=0.31.0" />
-  <link rel="stylesheet" href="/assets/native-bi.css?v=0.31.0" />
-  <link rel="stylesheet" href="/assets/bi-workspace-layout.css?v=0.31.0" />
-  <link rel="stylesheet" href="/assets/bi-help.css?v=0.31.0" />
-  <link rel="stylesheet" href="/assets/bi-dialogs.css?v=0.31.0" />
-  <link rel="stylesheet" href="/assets/bi-assistant-fab.css?v=0.31.0" />
-  <link rel="stylesheet" href="/assets/bi-plan-card.css?v=0.31.0" />
-  <link rel="stylesheet" href="/assets/smart-import-ui.css?v=0.31.0" />
-  <link rel="stylesheet" href="/assets/smart-workbench-ui.css?v=0.31.0" />
-  <link rel="stylesheet" href="/assets/project-ui.css?v=0.31.0" />
-  <link rel="stylesheet" href="/assets/project-bi-ui.css?v=0.31.0" />
-  <link rel="stylesheet" href="/assets/modeling-ui.css?v=0.31.0" />
+  <link rel="stylesheet" href="/assets/styles.css?v=0.40.6" />
+  <link rel="stylesheet" href="/assets/experience.css?v=0.40.6" />
+  <link rel="stylesheet" href="/assets/bi-settings.css?v=0.40.6" />
+  <link rel="stylesheet" href="/assets/bi-grid.css?v=0.40.6" />
+  <link rel="stylesheet" href="/assets/bi-conversation.css?v=0.40.6" />
+  <link rel="stylesheet" href="/assets/feature-lab-ui.css?v=0.40.6" />
+  <link rel="stylesheet" href="/assets/feature-lab2.css?v=0.40.6" />
+  <link rel="stylesheet" href="/assets/data-analysis-ui.css?v=0.40.6" />
+  <link rel="stylesheet" href="/assets/data-dashboard-v0372.css?v=0.40.6" />
+  <link rel="stylesheet" href="/assets/analysis-workspace.css?v=0.40.6" />
+  <link rel="stylesheet" href="/assets/analysis-delivery-ui.css?v=0.40.6" />
+  <link rel="stylesheet" href="/assets/analysis-insights.css?v=0.40.6" />
+  <link rel="stylesheet" href="/assets/native-bi.css?v=0.40.6" />
+  <link rel="stylesheet" href="/assets/bi-workspace-layout.css?v=0.40.6" />
+  <link rel="stylesheet" href="/assets/bi-help.css?v=0.40.6" />
+  <link rel="stylesheet" href="/assets/bi-dialogs.css?v=0.40.6" />
+  <link rel="stylesheet" href="/assets/bi-assistant-fab.css?v=0.40.6" />
+  <link rel="stylesheet" href="/assets/bi-plan-card.css?v=0.40.6" />
+  <link rel="stylesheet" href="/assets/smart-import-ui.css?v=0.40.6" />
+  <link rel="stylesheet" href="/assets/smart-workbench-ui.css?v=0.40.6" />
+  <link rel="stylesheet" href="/assets/project-ui.css?v=0.40.6" />
+  <link rel="stylesheet" href="/assets/system-logs-ui.css?v=0.40.6" />
+  <link rel="stylesheet" href="/assets/project-bi-ui.css?v=0.40.6" />
+  <link rel="stylesheet" href="/assets/modeling-ui.css?v=0.40.6" />
 </head>
 <body>
   <div class="shell">
@@ -36,12 +42,13 @@
       <nav aria-label="主导航">
         <a data-nav href="/projects"><span class="nav-icon">▦</span>项目管理</a>
         <a data-nav href="/agent"><span class="nav-icon">◎</span>任务中心</a>
+        <a data-nav href="/logs"><span class="nav-icon">≡</span>系统日志</a>
         <a data-nav href="/settings"><span class="nav-icon">⚙</span>系统设置</a>
         <a data-nav href="/help"><span class="nav-icon">?</span>使用指南</a>
       </nav>
       <div class="sidebar-bottom">
         <div class="sidebar-status"><span class="pulse"></span><span>研发模式</span></div>
-        <small>TimePilot v0.31.0</small>
+        <small>TimePilot v0.40.6</small>
         <p>企业模式下将自动显示账户身份、项目角色和退出入口。</p>
       </div>
     </aside>
@@ -57,30 +64,41 @@
   <noscript><p class="no-script">TimePilot 工作台需要启用 JavaScript。请检查浏览器设置。</p></noscript>
   <div id="floating-task" class="floating-task is-hidden" role="status" aria-live="polite"></div>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script src="/assets/security-client.js?v=0.31.0"></script>
-  <script src="/assets/bi-workspace-layout.js?v=0.31.0" defer></script>
-  <script src="/assets/bi-help.js?v=0.31.0" defer></script>
-  <script src="/assets/bi-dialogs.js?v=0.31.0" defer></script>
-  <script src="/assets/bi-assistant-fab.js?v=0.31.0" defer></script>
-  <script src="/assets/bi-plan-card.js?v=0.31.0" defer></script>
-  <script src="/assets/correlation-heatmap.js?v=0.31.0" defer></script>
-  <script src="/assets/bi-conversation.js?v=0.31.0" defer></script>
-  <script src="/assets/native-bi.js?v=0.31.0" defer></script>
-  <script src="/assets/settings-ui.js?v=0.31.0" defer></script>
-  <script src="/assets/agent-ui.js?v=0.31.0" defer></script>
-  <script src="/assets/research-ui.js?v=0.31.0" defer></script>
-  <script src="/assets/project-bi-ui.js?v=0.31.0" defer></script>
-  <script src="/assets/asset-catalog-ui.js?v=0.31.0" defer></script>
-  <script src="/assets/project-ui.js?v=0.31.0" defer></script>
-  <script src="/assets/modeling-ui.js?v=0.31.0" defer></script>
-  <script src="/assets/feature-lab-ui.js?v=0.31.0" defer></script>
-  <script src="/assets/feature-profile-ui.js?v=0.31.0" defer></script>
-  <script src="/assets/feature-builder-ui.js?v=0.31.0" defer></script>
-  <script src="/assets/feature-evaluation-ui.js?v=0.31.0" defer></script>
-  <script src="/assets/feature-advanced-ui.js?v=0.31.0" defer></script>
-  <script src="/assets/feature-catalog-ui.js?v=0.31.0" defer></script>
-  <script src="/assets/feature-perspective-bridge.js?v=0.31.0" defer></script>
-  <script src="/assets/feature-shell.js?v=0.31.0" defer></script>
-  <script src="/assets/app.js?v=0.31.0" defer></script>
+  <script src="/assets/security-client.js?v=0.40.6"></script>
+  <script src="/assets/bi-workspace-layout.js?v=0.40.6" defer></script>
+  <script src="/assets/bi-help.js?v=0.40.6" defer></script>
+  <script src="/assets/bi-dialogs.js?v=0.40.6" defer></script>
+  <script src="/assets/bi-assistant-fab.js?v=0.40.6" defer></script>
+  <script src="/assets/bi-plan-card.js?v=0.40.6" defer></script>
+  <script src="/assets/correlation-heatmap.js?v=0.40.6" defer></script>
+  <script src="/assets/bi-conversation.js?v=0.40.6" defer></script>
+  <script src="/assets/perspective-loader.js?v=0.40.6" defer></script>
+  <script src="/assets/native-bi.js?v=0.40.6" defer></script>
+  <script src="/assets/settings-ui.js?v=0.40.6" defer></script>
+  <script src="/assets/agent-ui.js?v=0.40.6" defer></script>
+  <script src="/assets/research-ui.js?v=0.40.6" defer></script>
+  <script src="/assets/project-bi-ui.js?v=0.40.6" defer></script>
+  <script src="/assets/asset-catalog-ui.js?v=0.40.6" defer></script>
+  <script src="/assets/data-dashboard-v0372.js?v=0.40.6" defer></script>
+  <script src="/assets/data-analysis-ui.js?v=0.40.6" defer></script>
+  <script src="/assets/analysis-insights-ui.js?v=0.40.6" defer></script>
+  <script src="/assets/analysis-delivery-ui.js?v=0.40.6" defer></script>
+  <script src="/assets/analysis-workspace.js?v=0.40.6" defer></script>
+  <script src="/assets/project-ui.js?v=0.40.6" defer></script>
+  <script src="/assets/modeling-ui.js?v=0.40.6" defer></script>
+  <script src="/assets/feature-lab-ui.js?v=0.40.6" defer></script>
+  <script src="/assets/feature-profile-ui.js?v=0.40.6" defer></script>
+  <script src="/assets/feature-operator-help.js?v=0.40.6" defer></script>
+  <script src="/assets/feature-builder-ui.js?v=0.40.6" defer></script>
+  <script src="/assets/feature-evaluation-ui.js?v=0.40.6" defer></script>
+  <script src="/assets/feature-advanced-ui.js?v=0.40.6" defer></script>
+  <script src="/assets/feature-catalog-ui.js?v=0.40.6" defer></script>
+  <script src="/assets/feature-perspective-bridge.js?v=0.40.6" defer></script>
+  <script src="/assets/feature-auto-ui.js?v=0.40.6" defer></script>
+  <script src="/assets/feature-workbench-ui.js?v=0.40.6" defer></script>
+  <script src="/assets/feature-integrated-bi-ui.js?v=0.40.6" defer></script>
+  <script src="/assets/feature-shell.js?v=0.40.6" defer></script>
+  <script src="/assets/system-logs-ui.js?v=0.40.6" defer></script>
+  <script src="/assets/app.js?v=0.40.6" defer></script>
 </body>
 </html>

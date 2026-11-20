@@ -159,6 +159,16 @@ class DataPlatform:
         stable=str(uuid5(NAMESPACE_URL, 'timepilot-asset:'+pid+':'+link['import_id']+':'+link['candidate_id']))
         stamp=utcnow()
         with self.catalog._lock,self.catalog._db() as db:
+            db.execute('BEGIN IMMEDIATE')
+            existing=db.execute('''SELECT native_asset_id,data_sha256,row_count,column_count
+                FROM unified_versions WHERE project_id=? AND asset_id=? AND version_id=?''',
+                (pid,stable,link['version_id'])).fetchone()
+            if existing and (existing['native_asset_id']!=link['native_asset_id'] or
+                    existing['data_sha256']!=meta['data_sha256'] or
+                    existing['row_count']!=meta['row_count'] or
+                    existing['column_count']!=meta['column_count']):
+                from timepilot.smart_import import SmartImportError
+                raise SmartImportError('统一资产目录版本与原生资产物理身份冲突，拒绝静默跳过')
             db.execute('''INSERT OR IGNORE INTO unified_assets
                 (asset_id,project_id,import_id,candidate_id,name,status,created_at,updated_at)
                 VALUES(?,?,?,?,?,?,?,?)''',

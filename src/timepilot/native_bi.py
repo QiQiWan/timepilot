@@ -29,6 +29,7 @@ from timepilot.storage import sha256_file
 from timepilot.native_bi_edit import NativeBIEditMixin
 from timepilot.physical_store import ParquetBlobStore
 from timepilot.native_bi_types import infer_text_schema, valid_type
+from timepilot.native_bi_recovery import create_intent, snapshot_ready, scan_orphan_snapshots
 
 MAX_PREVIEW_ROWS = 1000
 MAX_COLUMNS = 256
@@ -242,6 +243,9 @@ class NativeBIService(NativeBIEditMixin):
         self.home = settings.home / "native_bi"
         self.home.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
+        self._verify_lock = threading.RLock()
+        self._verify_cache = {}
+        self._verify_stats = {'hits': 0, 'hashes': 0, 'hash_bytes_read': 0}
         self.blobs = ParquetBlobStore(self.home)
 
     def capabilities(self) -> dict:
@@ -299,6 +303,47 @@ class NativeBIService(NativeBIEditMixin):
         with self.store.sessions() as s:
             return [self._metadata(x) for x in s.scalars(select(NativeBIAssetRow).order_by(NativeBIAssetRow.created_at.desc()).limit(min(200, max(1, limit))))]
 
+    def find_published_candidates(self, project_id: str, import_id: str,
+                                  candidate_id: str, version_id: str,
+                                  *, max_scan: int = 100_000) -> dict:
+        """Enumerate durable BI metadata for an interrupted publish.
+
+        A 200-item UI list cannot prove that a snapshot does not exist. Scan
+        authoritative metadata with a finite budget; incomplete scans explicitly
+        forbid any decision based on apparent absence. Never use name matching.
+        """
+        expected = {'project_id': project_id, 'import_id': import_id,
+                    'candidate_id': candidate_id, 'version_id': version_id}
+        matched = []
+        scanned = 0
+        complete = True
+        known_ids = set()
+        with self.store.sessions() as session:
+            rows = session.execute(select(NativeBIAssetRow.id, NativeBIAssetRow.lineage_json)).yield_per(256)
+            for aid, raw in rows:
+                scanned += 1
+                if scanned > max_scan:
+                    complete = False
+                    break
+                known_ids.add(str(aid))
+                try:
+                    lineage = json.loads(raw)
+                except (TypeError, ValueError):
+                    complete = False
+                    continue
+                if all(lineage.get(key) == val for key, val in expected.items()):
+                    matched.append(str(aid))
+        # A complete Parquet may outlive the process that was about to commit
+        # its metadata. v0.38.6 records an immutable-source intent before IO,
+        # allowing an unrelated orphan to be reported without freezing every
+        # project's publication. Legacy/ambiguous snapshots still fail closed.
+        inventory = scan_orphan_snapshots(
+            self.home, known_ids, expected=expected,
+            max_scan=max_scan)
+        return {'asset_ids': matched, 'scanned': min(scanned, max_scan),
+                **inventory, 'complete': bool(complete and inventory['complete']),
+                'source': 'authoritative_native_metadata_and_provenance_filesystem'}
+
     def asset(self, asset_id: str) -> dict:
         row = self._asset(asset_id)
         path = self._path(row.id)
@@ -306,15 +351,56 @@ class NativeBIService(NativeBIEditMixin):
             raise NativeBIError("原生 BI 快照文件缺失或文件长度异常，请检查存储")
         return {**self._metadata(row), "head_version": self._head(row.id)}
 
-    def verify(self, asset_id: str) -> dict:
+    def verify(self, asset_id: str, *, force: bool = False) -> dict:
+        """Check immutable snapshot bytes once per short window and on every stat change.
+
+        Cache keys include ctime (not just mtime), inode and expected source hash.
+        A changed file fails closed even within the cache TTL. Explicit audited
+        reads, exports and incident reviews may use ``force=True``.
+        """
+        import time
         row = self._asset(asset_id)
         path = self._path(row.id)
-        if not path.is_file():
+        try:
+            stat = path.stat()
+            if not path.is_file():
+                raise FileNotFoundError(path)
+        except (OSError, ValueError):
             return {"asset_id": asset_id, "valid": False, "actual_sha256": None,
                     "expected_sha256": row.sha256, "reason": "snapshot_missing"}
-        actual = sha256_file(path)
-        return {"asset_id": asset_id, "valid": actual == row.sha256, "actual_sha256": actual,
-                "expected_sha256": row.sha256, "reason": None if actual == row.sha256 else "checksum_mismatch"}
+        if stat.st_size != row.file_bytes:
+            return {"asset_id": asset_id, "valid": False, "actual_sha256": None,
+                    "expected_sha256": row.sha256, "reason": "snapshot_size_mismatch"}
+        signature = (row.sha256, row.file_bytes, stat.st_dev, stat.st_ino,
+                     stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns)
+        # Protect both the check and the expensive file read against parallel
+        # dashboard requests. The lock is intentionally per service instance.
+        with self._verify_lock:
+            now = time.monotonic()
+            entry = self._verify_cache.get(asset_id)
+            if not force and entry and entry[0] == signature and now-entry[1] < 30:
+                self._verify_stats['hits'] += 1
+                return dict(entry[2])
+            actual = sha256_file(path)
+            after = path.stat()
+            stable = (after.st_dev,after.st_ino,after.st_size,after.st_mtime_ns,after.st_ctime_ns) == signature[2:]
+            self._verify_stats['hashes'] += 1
+            self._verify_stats['hash_bytes_read'] += stat.st_size
+            valid = bool(stable and actual == row.sha256)
+            answer = {"asset_id": asset_id, "valid": valid, "actual_sha256": actual,
+                      "expected_sha256": row.sha256,
+                      "reason": None if valid else ("snapshot_modified_during_verification" if not stable else "checksum_mismatch")}
+            self._verify_cache.pop(asset_id, None)
+            if valid:
+                if len(self._verify_cache) >= 64:
+                    self._verify_cache.pop(next(iter(self._verify_cache)))
+                self._verify_cache[asset_id] = (signature, now, dict(answer))
+            return answer
+
+    def verification_metrics(self) -> dict:
+        with self._verify_lock:
+            return {**self._verify_stats, 'entries': len(self._verify_cache),
+                    'cache_ttl_seconds': 30}
 
     def _connection(self):
         db = require_duckdb()
@@ -370,6 +456,14 @@ class NativeBIService(NativeBIEditMixin):
         asset_id = str(uuid4())
         target_dir = self.home / asset_id
         target_dir.mkdir(parents=True, exist_ok=False)
+        # Write a durable source-scoped intent before physical Parquet IO.
+        # Without this evidence, a SIGKILL after os.replace() produces an
+        # unattributable orphan and can block every subsequent publication.
+        try:
+            create_intent(target_dir, asset_id, lineage or {"type": "file_import"})
+        except Exception:
+            shutil.rmtree(target_dir, ignore_errors=True)
+            raise
         temp_target = target_dir / "data.building"
         target = target_dir / "data.parquet"
         try:
@@ -446,10 +540,19 @@ class NativeBIService(NativeBIEditMixin):
                             "inference_reason": suggestions.get(x[0], {}).get('reason', '源数据类型已保留')}
                            for x in result if x[0] != "__tp_rowid"]
             os.replace(temp_target, target)
+            # Persist the completed Parquet bytes before the durable recovery
+            # sidecar claims they exist. A power loss must never make a valid
+            # intent point to a non-durable Parquet without being detectable.
+            with target.open('rb') as completed:
+                os.fsync(completed.fileno())
+            physical_hash = sha256_file(target)
+            file_bytes = target.stat().st_size
+            snapshot_ready(target_dir, sha256=physical_hash, file_bytes=file_bytes,
+                           row_count=int(count))
             record = NativeBIAssetRow(id=asset_id, name=name, row_count=int(count),
                                       columns_json=json.dumps(columns, ensure_ascii=False),
                                       lineage_json=json.dumps(lineage or {"type": "file_import"}, ensure_ascii=False),
-                                      sha256=sha256_file(target), file_bytes=target.stat().st_size)
+                                      sha256=physical_hash, file_bytes=file_bytes)
             self._persist_asset_metadata(record)
             # Optimization after committing authoritative metadata. A CAS or
             # filesystem error never invalidates a fully published asset.
@@ -460,7 +563,12 @@ class NativeBIService(NativeBIEditMixin):
                 logging.getLogger(__name__).warning('Parquet CAS dedup skipped for %s: %s',asset_id,exc)
             return self._metadata(record)
         except Exception:
-            shutil.rmtree(target_dir, ignore_errors=True)
+            # A finalized Parquet is forensic evidence of an uncertain external
+            # commit. Do not delete it after a SQLite busy/error; preserve the
+            # intent and require explicit reconciliation. Incomplete builds
+            # without a finalized snapshot may be discarded safely.
+            if not target.is_file():
+                shutil.rmtree(target_dir, ignore_errors=True)
             raise
 
     def derive_types(self, asset_id: str, *, expected_version: str, changes: dict[str, str],

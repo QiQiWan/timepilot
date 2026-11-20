@@ -1,7 +1,8 @@
 """Single cross-platform CLI for TimePilot. Uses the active interpreter only.
 
-Subcommands reuse internal Python tools. Launch never installs npm packages or
-builds frontend assets; a reviewed offline bundle is built on the build host.
+Subcommands reuse the active Python interpreter. On first normal startup, native BI
+resources are checked; source mode may bootstrap/build Perspective using an existing
+Node 24 and npm dependency setup. Offline deployment requires a previously verified bundle.
 """
 from __future__ import annotations
 
@@ -51,7 +52,86 @@ def accept(target: str, env: dict[str,str], *, mode: str = 'offline') -> None:
     run(sys.executable, 'scripts/verify_installation.py', '--source-only', env=env)
     def pytest(*tests):
         run(sys.executable, '-m', 'pytest', '-q', *tests, env=env)
-    if target == 'feature-lab-v031':
+    if target == 'feature-lab-v0324':
+        if mode == 'configured':
+            inputs={'--csv':'TIMEPILOT_QA_CSV','--backend':'TIMEPILOT_QA_BACKEND',
+                    '--browser':'TIMEPILOT_QA_BROWSER','--advanced':'TIMEPILOT_QA_ADVANCED',
+                    '--business':'TIMEPILOT_QA_BUSINESS'}
+            missing=[env_name for env_name in inputs.values() if not env.get(env_name)]
+            if missing:
+                raise SystemExit('[BLOCKED] Configured end-to-end acceptance requires real QA evidence: '
+                                 + ', '.join(missing))
+            params=[arg for flag,name in inputs.items() for arg in (flag,env[name])]
+            run(sys.executable,'scripts/featurelab324_acceptance.py',*params,'--scope','full',env=env)
+            print('[QA EVIDENCE VERIFIED] External data provenance remains operator-declared; '
+                  'business approval and published runtime release are separate.',flush=True)
+            return
+        pytest('tests/test_featurelab324_legacy_gate_and_evidence.py',
+               'tests/test_featurelab323_topology_and_p1.py',
+               'tests/test_featurelab322_same_artifact.py')
+        for asset in ('feature-auto-ui.js','feature-shell.js','feature-catalog-ui.js',
+                      'feature-builder-ui.js','feature-perspective-bridge.js'):
+            run('node','--check','src/timepilot/static/'+asset,env=env)
+        run('node','--test',
+            'frontend/native-bi/tests/featurelab324_manual_and_audit.test.mjs',
+            'frontend/native-bi/tests/featurelab323_safe_auto_ui.test.mjs',env=env,timeout=90)
+        print('[SOURCE QA ONLY] Legacy temporal audits, manual ordering, model evidence '
+              'and real-E2E strict gate contracts. True DuckDB/Parquet/Chrome and enterprise '
+              'dataset provenance remain pending.',flush=True)
+    elif target == 'feature-lab-v0323':
+        if mode != 'offline':
+            raise SystemExit('[BLOCKED] Source QA does not prove real DuckDB, industrial PIT, '
+                'browser Perspective or supervised business value. Keep production release blocked.')
+        pytest('tests/test_featurelab323_topology_and_p1.py',
+               'tests/test_featurelab322_same_artifact.py',
+               'tests/test_featurelab32_auto_workflow.py',
+               'tests/test_featurelab321_agent_orchestration.py')
+        for asset in ('feature-auto-ui.js','feature-shell.js','feature-perspective-bridge.js'):
+            run('node','--check','src/timepilot/static/'+asset,env=env)
+        run('node','--test',
+            'frontend/native-bi/tests/featurelab323_safe_auto_ui.test.mjs',
+            'frontend/native-bi/tests/featurelab322_delivery_ui.test.mjs',
+            'frontend/native-bi/tests/featurelab321_agent_ui.test.mjs',
+            'frontend/native-bi/tests/featurelab32_auto_ui.test.mjs',env=env,timeout=90)
+        print('[SOURCE QA ONLY] P0: numeric record order and entity isolation; '
+              'P1: objective/large-data gates, model feedback, human approval. '
+              'DuckDB integration, real production source and macOS BI remain pending.',flush=True)
+    elif target == 'feature-lab-v0322':
+        if mode != 'offline':
+            raise SystemExit('[BLOCKED] Production acceptance requires real PIT Parquet, '
+                'independent Perspective browser verification and reviewed industrial '
+                'data provenance; source tests cannot certify these conditions.')
+        pytest('tests/test_featurelab322_same_artifact.py',
+               'tests/test_featurelab32_auto_workflow.py',
+               'tests/test_featurelab321_agent_orchestration.py')
+        for asset in ('feature-auto-ui.js','feature-shell.js','feature-perspective-bridge.js'):
+            run('node','--check','src/timepilot/static/'+asset,env=env)
+        run('node','--test',
+            'frontend/native-bi/tests/featurelab322_delivery_ui.test.mjs',
+            'frontend/native-bi/tests/featurelab321_agent_ui.test.mjs',
+            'frontend/native-bi/tests/featurelab32_auto_ui.test.mjs',
+            env=env,timeout=90)
+        print('[SOURCE QA ONLY] LLM safety, supervised binding, same-artifact '
+              'control plane and client-reported BI receipts checked. Real DuckDB/Arrow, '
+              'browser and industrial business evaluation remain release gates.',flush=True)
+    elif target == 'feature-lab-v0321':
+        if mode != 'offline':
+            raise SystemExit('[BLOCKED] Source QA cannot certify live provider, real industrial '
+                'measurements or a Perspective browser. Run the real release gates '
+                'and retain corresponding evidence before production use.')
+        pytest('tests/test_featurelab321_agent_orchestration.py',
+               'tests/test_featurelab32_auto_workflow.py',
+               'tests/test_featurelab3_agent_v0256.py')
+        for asset in ('feature-auto-ui.js','feature-shell.js'):
+            run('node','--check','src/timepilot/static/'+asset,env=env)
+        run('node','--test',
+            'frontend/native-bi/tests/featurelab321_agent_ui.test.mjs',
+            'frontend/native-bi/tests/featurelab32_auto_ui.test.mjs',
+            env=env,timeout=90)
+        print('[SOURCE QA ONLY] Model proposal validation and fallback tested with '
+              'controlled responses. Live provider, DuckDB numerical runs and '
+              'Perspective browser are not certified.',flush=True)
+    elif target == 'feature-lab-v031':
         if mode == 'configured':
             required_fields=('CSV','PROVENANCE','EVENT_TIME','AVAILABLE_AT','PREDICTION_TIME',
                 'LABEL_AVAILABLE','LABEL','DEVICE','REGIME','MEASURE_A','MEASURE_B',
@@ -357,13 +437,23 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description='TimePilot unified control: start, check, test, accept, build, package. Active Python only.')
     parser.add_argument('command', nargs='?', default='start',choices=[
-        'start','check','doctor','db-check','source-check','source-repair','restore-hidden','bi-setup','status','test','accept','build','package','backup'])
+        'start','check','doctor','db-check','source-check','source-repair','restore-hidden','bi-setup','status','test','accept','build','package','backup','restore','release-gate','worker-service','worker-status','workers-start'])
     parser.add_argument('target', nargs='?', default='all',
-        help='accept: feature-lab-v031 / feature-lab-v030 / feature-lab-v029 / native / all')
-    parser.add_argument('--mode',choices=['offline','configured'],default='offline',help='accept: configured requires real DuckDB/Arrow/Perspective/Chrome E2E')
+        help='accept: feature-lab-v0324 / feature-lab-v0323 / feature-lab-v0322 / feature-lab-v0321 / feature-lab-v031 / feature-lab-v030 / native / all')
+    parser.add_argument('--mode',choices=['offline','configured','source','physical','browser'],default='offline',help='accept: configured real E2E; release-gate: source/offline/physical/browser')
+    parser.add_argument('--role', choices=['forecast','agent','upload','publication','feature'], default=None)
+    parser.add_argument('--poll-seconds', type=float, default=.75)
+    parser.add_argument('--max-rss-mib', type=float, default=None)
+    parser.add_argument('--once', action='store_true', help='worker-service: run one scan cycle')
+    parser.add_argument('--external-workers', action='store_true', help='start: API-only mode; launch workers-start separately')
     parser.add_argument('--port',type=int,default=None)
     parser.add_argument('--output',default=None)
     parser.add_argument('--with-native',action='store_true')
+    parser.add_argument('--complete-offline',action='store_true')
+    parser.add_argument('--wheelhouse',default=None)
+    parser.add_argument('--archive',default=None,help='release-gate: existing complete offline ZIP')
+    parser.add_argument('--backup-archive',default=None)
+    parser.add_argument('--destination',default=None)
     parser.add_argument('--bootstrap-lock',action='store_true')
     parser.add_argument('--dry-run', action='store_true', help='source-repair: inspect changes without modifying files')
     args = parser.parse_args()
@@ -400,13 +490,25 @@ def main() -> int:
             run(sys.executable,'scripts/preflight_schema.py' ,'--home',env['TIMEPILOT_HOME'],env=env)
         run(sys.executable,'-m','timepilot','doctor',env=env)
         if args.command == 'start':
-            run(sys.executable,'scripts/ensure_native_bi.py','--status-only',env=env)
+            # One-command bootstrap: check verified bundle -> resolve local Node 24
+            # -> repair only an unsigned npm lock -> npm ci -> atomic BI build.
+            # Existing runtime, Conda environment and valid assets remain untouched.
+            offline=env.get('TIMEPILOT_OFFLINE','').strip().lower() in ('1','yes','true')
+            bi_flags=['--auto-build', '--auto-bootstrap', '--auto-node']
+            if env.get('TIMEPILOT_AUTO_BUILD_BI','1').strip().lower() in ('0','false','no'):
+                bi_flags=['--status-only']
+            if offline:
+                print('[TimePilot] Offline mode: no Node/npm downloads permitted.', flush=True)
+            run(sys.executable,'scripts/ensure_native_bi.py',*bi_flags,env=env)
             port = args.port if args.port is not None else int(env.get('TIMEPILOT_PORT','8000'))
             if not 1 <= port <= 65535:
                 raise SystemExit('Port must be 1..65535')
             host=env.get('TIMEPILOT_HOST','127.0.0.1')
             print(f'[TimePilot] Starting {host}:{port}',flush=True)
-            run(sys.executable,'-m','timepilot','serve','--host',host,'--port',str(port),env=env)
+            cmd=[sys.executable,'-m','timepilot','serve','--host',host,'--port',str(port)]
+            if args.external_workers:
+                cmd.append('--no-worker')
+            run(*cmd,env=env)
     elif args.command == 'test':
         run(sys.executable,'scripts/verify_installation.py','--source-only',env=env)
         # Isolate tests that start real ASGI/SQLite/Chrome runtimes. A single
@@ -432,7 +534,9 @@ def main() -> int:
     elif args.command == 'accept':
         accept(args.target,env,mode=args.mode)
     elif args.command == 'bi-setup':
-        params = [sys.executable, 'scripts/setup_native_bi.py']
+        # Keep the former explicit command working; it now shares the Windows
+        # user-local Node resolution with normal one-command startup.
+        params = [sys.executable, 'scripts/setup_native_bi.py', '--auto-node']
         if args.bootstrap_lock:
             params.append('--bootstrap-lock')
         run(*params, env=env)
@@ -444,10 +548,46 @@ def main() -> int:
         if not args.output:raise SystemExit('Backup requires --output outside TIMEPILOT_HOME')
         run(sys.executable,'scripts/backup_runtime.py','--home',env['TIMEPILOT_HOME'],
             '--output',str(Path(args.output).expanduser().resolve()),env=env)
+    elif args.command == 'restore':
+        if not args.backup_archive or not args.destination:
+            raise SystemExit('Restore requires --backup-archive ZIP --destination NEW_DIRECTORY')
+        run(sys.executable,'scripts/backup_runtime.py','--home',env['TIMEPILOT_HOME'],
+            '--restore',str(Path(args.backup_archive).expanduser().resolve()),
+            '--destination',str(Path(args.destination).expanduser().absolute()),env=env)
+    elif args.command == 'worker-service':
+        if not args.role:
+            raise SystemExit('worker-service requires --role forecast|agent|upload|publication|feature')
+        params = [sys.executable, '-m', 'timepilot', 'worker-service', '--role', args.role,
+                  '--poll-seconds', str(args.poll_seconds)]
+        if args.max_rss_mib is not None:
+            params += ['--max-rss-mib', str(args.max_rss_mib)]
+        if args.once:
+            params.append('--once')
+        run(*params, env=env)
+    elif args.command == 'workers-start':
+        params = [sys.executable, 'scripts/worker_pool.py', '--poll-seconds', str(args.poll_seconds)]
+        if args.max_rss_mib is not None:
+            params += ['--max-rss-mib', str(args.max_rss_mib)]
+        run(*params, env=env)
+    elif args.command == 'worker-status':
+        run(sys.executable, '-m', 'timepilot', 'worker-status', env=env)
+    elif args.command == 'release-gate':
+        mode = args.mode if args.mode in ('source','offline','physical','browser') else 'source'
+        params = [sys.executable, 'scripts/release_gate_v0406.py', '--mode', mode]
+        if args.output:
+            params += ['--out', str(Path(args.output).expanduser().resolve())]
+        if args.wheelhouse:
+            params += ['--wheelhouse', str(Path(args.wheelhouse).expanduser().resolve())]
+        if args.archive:
+            params += ['--archive', str(Path(args.archive).expanduser().resolve())]
+        run(*params, env=env)
     elif args.command == 'package':
         run(sys.executable,'scripts/verify_installation.py','--source-only',env=env)
         params=[sys.executable,'scripts/package_timepilot.py',
-                '--with-native-bundle' if args.with_native else '--source-only']
+                '--with-native-bundle' if (args.with_native or args.complete_offline) else '--source-only']
+        if args.complete_offline:
+            if not args.wheelhouse:raise SystemExit('Complete offline package requires --wheelhouse')
+            params.extend(['--complete-offline','--wheelhouse',str(Path(args.wheelhouse).expanduser().resolve())])
         if args.output:params.extend(['--output',str(Path(args.output).expanduser().resolve())])
         run(*params,env=env)
     return 0

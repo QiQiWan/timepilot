@@ -2,7 +2,7 @@
 
 Building the offline Perspective frontend must not need forecasting dependencies.
 """
-__version__ = "0.31.0"
+__version__ = "0.40.6"
 __all__ = ["TimePilot", "__version__"]
 
 

@@ -1,0 +1,22 @@
+{
+  "dataset": "Numenta/NAB",
+  "reference": "master as inspected 2026-11-16",
+  "source": "https://github.com/numenta/NAB",
+  "git_blob_sha1": {
+    "labels/combined_windows.json": "2f1be355750a2fefa8d781215d3275fda3d83d23",
+    "data/realAWSCloudwatch/ec2_cpu_utilization_24ae8d.csv": "9185706041f377320d8fa45cbfb8097ac64e322b",
+    "data/realAWSCloudwatch/ec2_cpu_utilization_53ea38.csv": "06695ff205cd31ffb851150a1c4b583019f53bf1",
+    "data/realAWSCloudwatch/ec2_cpu_utilization_5f5533.csv": "071ec4bf080a9924d6eed6f212131c232db8c79f",
+    "data/realAWSCloudwatch/ec2_cpu_utilization_77c1ca.csv": "f4b3da1f21dbf8a93d97dd122cbf7a2551eff74d",
+    "data/realAWSCloudwatch/ec2_cpu_utilization_825cc2.csv": "db8b7dc9173f4d8c0c230bf2f78e85f586886e71",
+    "data/realAWSCloudwatch/ec2_cpu_utilization_ac20cd.csv": "7d3486c1d8e298eef224efe99a700180a1bf309c",
+    "data/realAWSCloudwatch/ec2_cpu_utilization_c6585a.csv": "fadc9eac5cd59da043227c0a5b511bf98f44d671",
+    "data/realAWSCloudwatch/ec2_cpu_utilization_fe7f93.csv": "ccb3fcd10d5600ac4f141c7bab77b6352dfe2bb0"
+  },
+  "predeclared_holdout_devices": {
+    "validation": "ac20cd",
+    "test": "fe7f93"
+  },
+  "dataset_license": "MIT repository license; cite Numenta NAB and originating data providers",
+  "label_type": "retrospective anomaly window, not certified event onset or label receipt"
+}

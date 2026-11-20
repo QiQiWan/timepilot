@@ -289,29 +289,11 @@
     mod=null;visualSource=null;agentWorkspace=null;snapshotSaveTask=null;lastSnapshotToken=null;
   }
   async function ensurePerspectiveModule(){
-    if(mod)return mod;
-    // The manifest contains the actual bundled module digest, so a rebuild
-    // in a long-running browser tab is never confused with an old ESM import.
-    const manifestResponse=await fetch('/assets/native-bi/perspective-build.json',{cache:'no-store'});
-    if(!manifestResponse.ok)throw new Error('Perspective 发布清单不可用（HTTP '+manifestResponse.status+'）。请在开发环境执行 python scripts/build_native_bi.py');
-    const manifest=await manifestResponse.json();
-    const entry=manifest.files?.['perspective-entry.js'];
-    if(!entry||!/^([0-9a-f]{64})$/.test(String(entry.sha256||''))){
-      throw new Error('Perspective 发布清单缺少有效的 JS 构建指纹，请重新构建');
-    }
-    const stamp=entry.sha256.slice(0,16);
-    const js='/assets/native-bi/perspective-entry.js?v='+stamp;
-    const candidate=await import(js);
-    const missing=PERSPECTIVE_API.filter(name=>typeof candidate[name]!=='function');
-    if(missing.length){
-      throw new Error('Perspective 浏览器模块缺少导出 ['+missing.join(', ')+']；当前 JS 构建接口不完整。请重新执行 python scripts/build_native_bi.py（Vite 应启用 preserveEntrySignatures: strict）');
-    }
-    if(!document.querySelector('[data-perspective-css]')){
-      const link=document.createElement('link');link.rel='stylesheet';
-      link.href='/assets/native-bi/perspective-entry.css?v='+stamp;
-      link.dataset.perspectiveCss='1';document.head.appendChild(link);
-    }
-    mod=candidate;
+    if(!window.TimePilotPerspectiveLoader?.load)throw new Error('统一 Perspective 加载器未就绪，请刷新页面。');
+    // Always check the current digest, even when mod remains cached.
+    mod=await window.TimePilotPerspectiveLoader.load();
+    const missing=PERSPECTIVE_API.filter(name=>typeof mod[name]!=='function');
+    if(missing.length)throw new Error('Perspective 浏览器构建接口不完整：'+missing.join(', '));
     return mod;
   }
 
@@ -325,20 +307,39 @@
       `DuckDB 服务端结果（最多 ${nice(source.query?.limit||1000)} 组）· 版本 ${v}。`);
   }
   function fallbackBar(rows) {
-    const items=(rows||[]).slice(0,32), max=Math.max(1,...items.map(x=>Math.max(0,Number(x.value)||0)));
-    const size=760, step=(size-48)/Math.max(1,items.length);
-    return `<svg role="img" aria-label="服务端基础 BI 柱状图" viewBox="0 0 760 225" style="width:100%;max-width:100%;height:auto"><line x1="30" y1="180" x2="745" y2="180" stroke="#b8cde6"/>${items.map((x,i)=>{const v=Math.max(0,Number(x.value)||0),h=145*v/max,pos=32+i*step;return `<rect x="${pos}" y="${180-h}" width="${Math.max(2,step*.65)}" height="${h}" fill="#337bd2"><title>${H(x.name)}：${H(x.value)}</title></rect><text x="${pos}" y="198" font-size="10" fill="#61728c">${H(String(x.name).slice(-5))}</text>`}).join('')}</svg>`;
+    // Signed aggregates must keep negative values; clamping them to zero
+    // hid legitimate production deviations in the basic BI fallback.
+    const items=(rows||[]).slice(0,32);
+    const finite=items.map(x=>Number(x.value)).filter(Number.isFinite);
+    const max=Math.max(1,...finite.map(Math.abs));
+    const size=760, step=(size-48)/Math.max(1,items.length),mid=108;
+    const bars=items.map((x,i)=>{
+      const value=Number(x.value),v=Number.isFinite(value)?value:0;
+      const height=Math.abs(v)/max*69,positive=v>=0;
+      const pos=32+i*step;
+      return `<rect x="${pos}" y="${positive?mid-height:mid}" width="${Math.max(2,step*.65)}" height="${height}" fill="${positive?'#337bd2':'#b8742a'}"><title>${H(x.name)}：${H(x.value)}</title></rect><text x="${pos}" y="198" font-size="10" fill="#61728c">${H(String(x.name).slice(-5))}</text>`;
+    }).join('');
+    return `<svg role="img" aria-label="服务端基础 BI 分组汇总（含正负值）" viewBox="0 0 760 225" style="width:100%;max-width:100%;height:auto"><line x1="30" y1="${mid}" x2="745" y2="${mid}" stroke="#b8cde6"/>${bars}</svg>`;
   }
   async function showBasicFallback(reason='Perspective 原生引擎尚未就绪') {
     const slot=document.getElementById('tp-native-perspective');if(!slot||!current)return;
     setPerspectiveState(slot,'fallback',reason);
     const cols=current.columns;
     const dims=cols.filter(c=>!/(INT|DOUBLE|DECIMAL|FLOAT|BIGINT)/i.test(c.physical_type||''));
-    const vals=cols.filter(c=>/(INT|DOUBLE|DECIMAL|FLOAT|BIGINT)/i.test(c.physical_type||''));
+    const vals=cols.filter(c=>/(INT|DOUBLE|DECIMAL|FLOAT|BIGINT)/i.test(c.physical_type||'') &&
+      !/^(time|timestamp|date|id|index|row_id|order_index)$/i.test(c.name));
+    // With only numeric fields, default to a legitimate whole-table summary.
+    // Grouping by a numerical row index (e.g. Time=1,2,3,...) is misleading.
+    const dimensionOptions=dims.length?dims:[];
+    const metricOptions=vals.length?vals:cols.filter(c=>/(INT|DOUBLE|DECIMAL|FLOAT|BIGINT)/i.test(c.physical_type||'') &&
+      !/^(time|timestamp|date|id|index|row_id|order_index)$/i.test(c.name));
+    if(!metricOptions.length)metricOptions.push({name:'__count__'});
+    const preferredGroup=dimensionOptions[0]?.name||'__all__';
+    const preferredMetric=metricOptions[0];
     slot.innerHTML=`<div class="tp-native-basic"><div class="helper warning"><b>基础 BI 模式</b> · ${H(reason)}<p>数据浏览、筛选、分组汇总、编辑和版本回滚仍可使用；原生拖拽透视暂不可用。</p></div>
       <div class="tp-native-query-summary"><span>当前版本 ${H(selectedVersion==='base'?'原始数据':selectedVersion.slice(0,8))}</span><span>每次查询由 DuckDB 执行，显示结果受行数限制</span></div>
-      <div class="tp-native-tools"><label>分组字段 <select id="tp-basic-group">${(dims.length?dims:cols).map(c=>`<option value="${H(c.name)}">${H(c.name)}</option>`).join('')}</select></label>
-      <label>数值字段 <select id="tp-basic-metric">${(vals.length?vals:cols).map(c=>`<option value="${H(c.name)}">${H(c.name)}</option>`).join('')}</select></label>
+      <div class="tp-native-tools"><label>分组字段 <select id="tp-basic-group"><option value="__all__" ${preferredGroup==='__all__'?'selected':''}>全体数据（不分组）</option>${dimensionOptions.map(c=>`<option value="${H(c.name)}" ${c.name===preferredGroup?'selected':''}>${H(c.name)}</option>`).join('')}</select></label>
+      <label>数值字段 <select id="tp-basic-metric">${metricOptions.map(c=>`<option value="${H(c.name)}" ${c.name===preferredMetric?.name?'selected':''}>${H(c.name==='__count__'?'记录数（计数）':c.name)}</option>`).join('')}</select></label>
       <button class="button button-small" data-native="fallback-pivot">查询汇总</button><button class="button button-small" data-native="fallback-grid">刷新明细</button></div>
       <div id="tp-basic-results">正在读取明细…</div><div id="tp-basic-chart"></div></div>`;
     await fallbackGrid();
@@ -355,8 +356,10 @@
     const result=document.getElementById('tp-basic-chart');if(!group||!metric||!result)return;
     result.innerHTML='<p class="muted">正在汇总数据…</p>';
     try {const summary=await ctx.req('/native-bi/query',post({asset_id:current.asset_id,version_id:selectedVersion,
-      group_by:[group],metrics:[{operation:'sum',column:metric,alias:'value'}],order_by:[{field:group}],limit:32}));
-      result.innerHTML=fallbackBar((summary.rows||[]).map(x=>({name:x[group],value:x.value})));}
+      group_by:group==='__all__'?[]:[group],
+      metrics:[{operation:metric==='__count__'?'count':'avg',column:metric==='__count__'?null:metric,alias:'value'}],
+      ...(group==='__all__'?{}:{order_by:[{field:group}]}),limit:32}));
+      result.innerHTML=fallbackBar((summary.rows||[]).map(x=>({name:group==='__all__'?'全体数据':x[group],value:x.value})));}
     catch(e){result.innerHTML=alert(e.message)}
   }
   function websocketUrl(version){
@@ -381,7 +384,7 @@
       if(request!==chartRequest){await module.disposePerspective();return;}
       markVisualSource({kind:'virtual',asset_id:current.asset_id,version_id:version});
       setPerspectiveState(slot,'ready');
-    }catch(err){await showBasicFallback('原生分析连接失败：'+err.message);}
+    }catch(err){await showBasicFallback('原生分析连接失败：'+(err?.message||String(err||'未知连接错误')));}
   }
   async function displayArrow(bytes,source){
     const request=++chartRequest;

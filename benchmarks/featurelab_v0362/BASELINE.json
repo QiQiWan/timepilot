@@ -1,0 +1,407 @@
+{
+  "binary_oracle": {
+    "leak_trap_equals_label": true,
+    "positive_count": 154
+  },
+  "chart_oracle": {
+    "devices": {
+      "EQ-01": [
+        {
+          "first": "2025-01-01T00:00:00+00:00",
+          "last": "2025-01-01T07:15:00+00:00",
+          "max": 27.37454,
+          "mean": 23.402464,
+          "min": 19.14921,
+          "n": 30
+        },
+        {
+          "first": "2025-01-01T07:30:00+00:00",
+          "last": "2025-01-01T14:45:00+00:00",
+          "max": 28.0574,
+          "mean": 25.045878,
+          "min": 21.05023,
+          "n": 30
+        },
+        {
+          "first": "2025-01-01T15:00:00+00:00",
+          "last": "2025-01-01T22:15:00+00:00",
+          "max": 29.54854,
+          "mean": 24.805344,
+          "min": 20.72871,
+          "n": 30
+        },
+        {
+          "first": "2025-01-01T22:30:00+00:00",
+          "last": "2025-01-02T05:45:00+00:00",
+          "max": 37.82873,
+          "mean": 28.083498,
+          "min": 22.60276,
+          "n": 30
+        },
+        {
+          "first": "2025-01-02T06:00:00+00:00",
+          "last": "2025-01-02T13:15:00+00:00",
+          "max": 33.49242,
+          "mean": 29.374917,
+          "min": 25.68866,
+          "n": 30
+        },
+        {
+          "first": "2025-01-02T13:30:00+00:00",
+          "last": "2025-01-02T20:45:00+00:00",
+          "max": 35.73621,
+          "mean": 31.973882,
+          "min": 28.02168,
+          "n": 30
+        },
+        {
+          "first": "2025-01-02T21:00:00+00:00",
+          "last": "2025-01-03T04:15:00+00:00",
+          "max": 31.73104,
+          "mean": 25.931601,
+          "min": 19.15759,
+          "n": 30
+        },
+        {
+          "first": "2025-01-03T04:30:00+00:00",
+          "last": "2025-01-03T11:45:00+00:00",
+          "max": 37.7199,
+          "mean": 24.279802,
+          "min": 19.12089,
+          "n": 30
+        },
+        {
+          "first": "2025-01-03T12:00:00+00:00",
+          "last": "2025-01-03T19:15:00+00:00",
+          "max": 31.83881,
+          "mean": 26.469995,
+          "min": 24.01442,
+          "n": 30
+        },
+        {
+          "first": "2025-01-03T19:30:00+00:00",
+          "last": "2025-01-04T02:45:00+00:00",
+          "max": 29.88704,
+          "mean": 27.390874,
+          "min": 24.45423,
+          "n": 30
+        },
+        {
+          "first": "2025-01-04T03:00:00+00:00",
+          "last": "2025-01-04T10:15:00+00:00",
+          "max": 34.05713,
+          "mean": 25.523027,
+          "min": 18.43965,
+          "n": 30
+        },
+        {
+          "first": "2025-01-04T10:30:00+00:00",
+          "last": "2025-01-04T17:45:00+00:00",
+          "max": 38.14291,
+          "mean": 22.181504,
+          "min": 18.32904,
+          "n": 30
+        }
+      ],
+      "EQ-06": [
+        {
+          "first": "2025-01-01T00:05:00+00:00",
+          "last": "2025-01-01T07:20:00+00:00",
+          "max": 26.23599,
+          "mean": 23.247912,
+          "min": 20.67102,
+          "n": 30
+        },
+        {
+          "first": "2025-01-01T07:35:00+00:00",
+          "last": "2025-01-01T14:50:00+00:00",
+          "max": 29.41245,
+          "mean": 25.674725,
+          "min": 22.00062,
+          "n": 30
+        },
+        {
+          "first": "2025-01-01T15:05:00+00:00",
+          "last": "2025-01-01T22:20:00+00:00",
+          "max": 28.4802,
+          "mean": 24.6144,
+          "min": 20.71889,
+          "n": 30
+        },
+        {
+          "first": "2025-01-01T22:35:00+00:00",
+          "last": "2025-01-02T05:50:00+00:00",
+          "max": 42.77689,
+          "mean": 28.241723,
+          "min": 24.9507,
+          "n": 30
+        },
+        {
+          "first": "2025-01-02T06:05:00+00:00",
+          "last": "2025-01-02T13:20:00+00:00",
+          "max": 34.40729,
+          "mean": 30.209596,
+          "min": 24.62617,
+          "n": 30
+        },
+        {
+          "first": "2025-01-02T13:35:00+00:00",
+          "last": "2025-01-02T20:50:00+00:00",
+          "max": 35.15869,
+          "mean": 32.320905,
+          "min": 28.32297,
+          "n": 30
+        },
+        {
+          "first": "2025-01-02T21:05:00+00:00",
+          "last": "2025-01-03T04:20:00+00:00",
+          "max": 32.70773,
+          "mean": 26.421865,
+          "min": 19.89767,
+          "n": 30
+        },
+        {
+          "first": "2025-01-03T04:35:00+00:00",
+          "last": "2025-01-03T11:50:00+00:00",
+          "max": 37.85442,
+          "mean": 24.798029,
+          "min": 21.61851,
+          "n": 30
+        },
+        {
+          "first": "2025-01-03T12:05:00+00:00",
+          "last": "2025-01-03T19:20:00+00:00",
+          "max": 30.02916,
+          "mean": 25.752835,
+          "min": 21.41936,
+          "n": 30
+        },
+        {
+          "first": "2025-01-03T19:35:00+00:00",
+          "last": "2025-01-04T02:50:00+00:00",
+          "max": 30.50936,
+          "mean": 27.484687,
+          "min": 22.70706,
+          "n": 30
+        },
+        {
+          "first": "2025-01-04T03:05:00+00:00",
+          "last": "2025-01-04T10:20:00+00:00",
+          "max": 32.27544,
+          "mean": 24.860817,
+          "min": 17.56248,
+          "n": 30
+        },
+        {
+          "first": "2025-01-04T10:35:00+00:00",
+          "last": "2025-01-04T17:50:00+00:00",
+          "max": 36.00842,
+          "mean": 22.973109,
+          "min": 19.14198,
+          "n": 30
+        }
+      ]
+    },
+    "measure": "sensor_value_a",
+    "resolution": 12
+  },
+  "datasets": {
+    "dirty_import": {
+      "columns": [
+        "sample_id",
+        "event_timestamp",
+        "equipment_id",
+        "temperature_c",
+        "line",
+        "constant_zero"
+      ],
+      "rows": 500,
+      "sha256": "ce318f97aa8e503dbb6b41db03751a103e4f9a3f60823c1bc87df42767a696f8"
+    },
+    "industrial_early_label": {
+      "columns": [
+        "row_id",
+        "equipment_id",
+        "operating_regime",
+        "event_timestamp",
+        "measurement_available_at",
+        "prediction_timestamp",
+        "label_available_at",
+        "sensor_value_a",
+        "sensor_value_b",
+        "temperature_c",
+        "pressure_kpa",
+        "maintenance_event",
+        "future_quality_label__LEAKAGE_TRAP",
+        "quality_label"
+      ],
+      "rows": 2160,
+      "sha256": "0d02e512f90676b52f0ccbeec5c33cfd4b997c9966d6ff70ca68de5f31ba40d0"
+    },
+    "industrial_late_measurement": {
+      "columns": [
+        "row_id",
+        "equipment_id",
+        "operating_regime",
+        "event_timestamp",
+        "measurement_available_at",
+        "prediction_timestamp",
+        "label_available_at",
+        "sensor_value_a",
+        "sensor_value_b",
+        "temperature_c",
+        "pressure_kpa",
+        "maintenance_event",
+        "future_quality_label__LEAKAGE_TRAP",
+        "quality_label"
+      ],
+      "rows": 2160,
+      "sha256": "1446298c81a7c800cfc18e2dfe351e3fa972717ebf2a611f41cd911881fee43c"
+    },
+    "industrial_pit": {
+      "columns": [
+        "row_id",
+        "equipment_id",
+        "operating_regime",
+        "event_timestamp",
+        "measurement_available_at",
+        "prediction_timestamp",
+        "label_available_at",
+        "sensor_value_a",
+        "sensor_value_b",
+        "temperature_c",
+        "pressure_kpa",
+        "maintenance_event",
+        "future_quality_label__LEAKAGE_TRAP",
+        "quality_label"
+      ],
+      "rows": 2160,
+      "sha256": "345906b09ed7651d63d2a01ffcaa5eb377a31bcf976ac89bbb029078795a4a5c"
+    },
+    "maintenance_events": {
+      "columns": [
+        "event_id",
+        "equipment_id",
+        "event_timestamp",
+        "available_at",
+        "event_type",
+        "reset_wear",
+        "regime_after"
+      ],
+      "rows": 18,
+      "sha256": "50c98c5487031677ac28c40e5ae7a107b1bc5d2a09b52121b53e72fce1b33abf"
+    },
+    "sensor_unlabeled": {
+      "columns": [
+        "event_timestamp",
+        "equipment_id",
+        "regime",
+        "sensor_a",
+        "sensor_b"
+      ],
+      "rows": 1200,
+      "sha256": "49af2625f8010e792110a518defca7027eeeb3410f22db0bda3615be7a3e10fd"
+    },
+    "static_binary": {
+      "columns": [
+        "sample_id",
+        "batch",
+        "solder_flux",
+        "placement_offset",
+        "vibration",
+        "temperature_c",
+        "product_type",
+        "post_inspection_rework__LEAKAGE_TRAP",
+        "defect_label"
+      ],
+      "rows": 2400,
+      "sha256": "9ecb4bbd587be4f945f01023e376a6978759f80c952ebe450ef2a60e57157596"
+    },
+    "static_regression": {
+      "columns": [
+        "sample_id",
+        "area_m2",
+        "age_years",
+        "rooms",
+        "district",
+        "construction_cost",
+        "noise_only",
+        "post_sale_price__LEAKAGE_TRAP",
+        "price_target"
+      ],
+      "rows": 1800,
+      "sha256": "686a09a7ab88f0168ebaf0dbba1810ba6bdd63625d6360b7268037f5dbc4c0a5"
+    }
+  },
+  "industrial_oracle": {
+    "devices": [
+      "EQ-01",
+      "EQ-02",
+      "EQ-03",
+      "EQ-04",
+      "EQ-05",
+      "EQ-06"
+    ],
+    "early_label_rows": 1,
+    "late_maintenance_count": 6,
+    "late_measurement_rows": 1,
+    "maintenance_counts": {
+      "EQ-01": 3,
+      "EQ-02": 3,
+      "EQ-03": 3,
+      "EQ-04": 3,
+      "EQ-05": 3,
+      "EQ-06": 3
+    },
+    "positives": 89,
+    "regime_runs": {
+      "EQ-01": [
+        "A",
+        "B",
+        "A",
+        "C"
+      ],
+      "EQ-02": [
+        "A",
+        "B",
+        "A",
+        "C"
+      ],
+      "EQ-03": [
+        "A",
+        "B",
+        "A",
+        "C"
+      ],
+      "EQ-04": [
+        "A",
+        "B",
+        "A",
+        "C"
+      ],
+      "EQ-05": [
+        "A",
+        "B",
+        "A",
+        "C"
+      ],
+      "EQ-06": [
+        "A",
+        "B",
+        "A",
+        "C"
+      ]
+    },
+    "valid_measurement_order": true
+  },
+  "quality_oracle": {
+    "duplicate_sample_ids": 12,
+    "invalid_datetime": 10,
+    "missing_temperature": 24,
+    "out_of_range_temperature": 8
+  },
+  "schema_version": 1,
+  "unlabeled_oracle": {
+    "no_label_column": true
+  }
+}

@@ -50,7 +50,10 @@ def test_generate_patch_resume_and_save_existing_feature_spec(tmp_path):
         doc=r.json();sid=doc['session_id']
         assert 1<=len(doc['candidates'])<=24
         assert all('time' not in c['output_name'].lower() for c in doc['candidates'])
-        assert all(c['operator_id'] in {'lag.rows','difference.rows','rolling.mean','rolling.std'}
+        # v0.32.3 P0: Unconfirmed numeric Time must not authorize time windows.
+        # Legacy v0.27 expected window operators here; that was unsafe for
+        # shuffled records and multi-device imports.
+        assert all(c['operator_id'] in {'transform.abs','arithmetic.binary'}
                    for c in doc['candidates'])
         assert len({c['output_name'] for c in doc['candidates']})==len(doc['candidates'])
         assert client.post(api+'/candidate-sessions',json=payload).json()['session_id']==sid
@@ -80,7 +83,7 @@ def test_generate_patch_resume_and_save_existing_feature_spec(tmp_path):
         with app.state.projects._db() as db:
             schema=db.execute('SELECT version FROM project_schema').fetchone()['version']
             names={x['name'] for x in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-        assert schema==TARGET_SCHEMA==34
+        assert schema==TARGET_SCHEMA
         assert 'feature_candidate_sessions' in names
     finally:client.__exit__(None,None,None)
 
@@ -223,7 +226,7 @@ def test_schema30_upgrade_adds_sessions_without_changing_existing_feature_sets(t
             after=db.execute('SELECT set_id,spec_sha256,revision FROM feature_sets WHERE set_id=?',
                              (sid,)).fetchone()
             tables={row[0] for row in db.execute('SELECT name FROM sqlite_master WHERE type="table"')}
-        assert version==34
+        assert version==TARGET_SCHEMA
         assert tuple(before)==tuple(after)
         assert 'feature_candidate_sessions' in tables
     finally:client.__exit__(None,None,None)

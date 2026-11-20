@@ -114,3 +114,14 @@ def test_acceptance_scripts_never_download_browser():
         assert 'chromium.launch(headless=True)' not in text
     assert "'scripts/system_chrome.py','--check'" in launcher
     assert 'launch_installed_chrome(p)' in browser
+
+
+def test_chromium_is_not_mistaken_for_installed_google_chrome(tmp_path, monkeypatch):
+    module = helper()
+    executable=tmp_path / 'chromium'
+    executable.write_bytes(b'preinstalled chromium')
+    with pytest.raises(module.ChromeNotFoundError, match='not Chromium'):
+        module.chrome_executable(environment={'TIMEPILOT_CHROME_PATH':str(executable)}, platform='linux')
+    monkeypatch.setattr(module.shutil, 'which', lambda name: str(executable) if name == 'chromium' else None)
+    with pytest.raises(module.ChromeNotFoundError, match='TIMEPILOT_CHROME_PATH'):
+        module.chrome_executable(environment={'TIMEPILOT_CHROMIUM_PATH':str(executable)}, platform='linux')

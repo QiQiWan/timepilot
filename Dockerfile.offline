@@ -1,0 +1,32 @@
+# Build an offline Docker image from a COMPLETE-OFFLINE TimePilot ZIP extracted
+# for the same Linux architecture. No npm/pip network access is used at build.
+# Requires frontend/native-bi/package-lock.json and native-bi JS/CSS/WASM.
+FROM python:3.12.12-slim-bookworm
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_INDEX=1 \
+    TIMEPILOT_HOME=/data \
+    TIMEPILOT_LOCAL_MODE=1 \
+    PYTHONPATH=/app/src
+WORKDIR /app
+COPY pyproject.toml requirements.txt README.md ./
+COPY scripts/offline_wheels.py scripts/verify_native_bi_release.py ./scripts/
+COPY offline-wheelhouse ./offline-wheelhouse
+# Verify every pinned wheel, its target OS/CPU/Python tag and all transitive
+# dependencies with pip's offline dry-run before installing into container.
+RUN python scripts/offline_wheels.py verify --wheelhouse offline-wheelhouse \
+ && python -m pip install --no-index --only-binary=:all: \
+      --find-links offline-wheelhouse --require-hashes \
+      -r offline-wheelhouse/requirements-offline-lock.txt
+COPY src ./src
+COPY frontend/native-bi ./frontend/native-bi
+RUN python scripts/verify_native_bi_release.py \
+      --require-python31212 --require-duckdb --require-build \
+      --require-source-current --require-virtual-server \
+ && useradd --create-home --uid 10001 timepilot \
+ && mkdir -p /data && chown -R timepilot:timepilot /data
+USER timepilot
+EXPOSE 8000
+HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health', timeout=2)" || exit 1
+CMD ["python", "-m", "uvicorn", "timepilot.asgi:app", "--host", "0.0.0.0", "--port", "8000"]

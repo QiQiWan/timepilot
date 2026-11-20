@@ -124,7 +124,11 @@ def test_readiness_is_fail_closed_on_missing_offline_release(tmp_path):
     with TestClient(app) as c:
         r=c.get('/api/v1/ready')
         if r.status_code==503:
-            assert r.json()['detail']['component']=='perspective_bundle'
-            assert 'repair' in r.json()['detail']
+            # Readiness became a multi-component contract in v0.38.1. The
+            # historical single-component 'repair' payload is deprecated.
+            detail=r.json()['detail']
+            assert detail['ready'] is False
+            assert 'native_bundle' in detail['components']
+            assert detail['problems'] and isinstance(detail['problems'],list)
         else:
             assert r.json()['ready'] is True

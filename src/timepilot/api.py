@@ -6,6 +6,9 @@ import io
 import json
 import os
 import threading
+import logging
+import time
+import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -56,11 +59,25 @@ class RunCreate(BaseModel):
 
 
 def create_app(*, home: str | Path | None = None, embedded_worker: bool = True):
+    """Serialize first-run SQLite schema migrations across API and Worker processes.
+
+    Role leases protect execution; this separate short-lived mutex protects
+    multi-step startup DDL across the legacy catalog and task tables.
+    """
+    from timepilot.config import Settings
+    from timepilot.startup_guard import startup_guard
+    with startup_guard(Settings.from_env(home).home):
+        return _create_app_unlocked(home=home, embedded_worker=embedded_worker)
+
+
+def _create_app_unlocked(*, home: str | Path | None = None, embedded_worker: bool = True):
     # Direct `python -m timepilot serve` must check a catalog before the
     # separate SQLAlchemy metadata DB or business services are initialized.
     from timepilot.config import Settings
     from timepilot.project_migrations import require_supported_catalog
     settings = Settings.from_env(home)
+    from timepilot.system_logs import setup_logging
+    setup_logging(settings.home)
     require_supported_catalog(settings.home / 'projects' / 'catalog.sqlite3')
     client = TimePilot(home=home)
     enterprise = os.getenv('TIMEPILOT_ENTERPRISE_MODE','0') == '1'
@@ -83,15 +100,9 @@ def create_app(*, home: str | Path | None = None, embedded_worker: bool = True):
     understanding = DataUnderstandingService(smart_import,models)
     data_assets = DataAssetCatalog(smart_import,workbench,legacy_bi=bi)
 
+    from timepilot.worker_runtime import choose_agent_tool, feature_cycle, publication_cycle
     def _model_choose(request: dict, allowed: list[str], evidence: dict) -> str:
-        # Only goal, allowlisted tool names and aggregate quality counters leave the machine.
-        # No source row, file name, API key, free-form SQL or dataset is transmitted.
-        payload = {'goal': request['goal'], 'allowed_tools': allowed, 'evidence': evidence}
-        answer = models._message([
-            {'role':'system','content':'只选以下给定工具之一。仅返回 JSON {"tool":"工具名"}；不能提出额外参数、命令或权限。'},
-            {'role':'user','content':json.dumps(payload,ensure_ascii=False)}], max_tokens=80)
-        result = models._parse_json(answer['content'])
-        return result.get('tool', '')
+        return choose_agent_tool(models, request, allowed, evidence)
 
     semantic_benchmark = SemanticBenchmark(client.settings.home, smart_import, models)
     mechanism_study = MechanismStudy(client.settings.home)
@@ -104,6 +115,14 @@ def create_app(*, home: str | Path | None = None, embedded_worker: bool = True):
     import_jobs = ProjectImportJobs(projects)
     publication_jobs = ProjectPublicationJobs(projects,native)
     modeling = ModelingWorkbench(projects, native)
+    from timepilot.model_task_store import ModelTaskStore
+    model_tasks = ModelTaskStore(projects, modeling)
+    from timepilot.model_task_execution import ModelTaskRunService
+    model_task_runs = ModelTaskRunService(model_tasks, modeling)
+    from timepilot.model_task_temporal_bridge import TemporalTaskBridge
+    temporal_model_bridge = TemporalTaskBridge(model_tasks, modeling, model_task_runs)
+    from timepilot.model_task_unified_runs import ModelTaskUnifiedRuns
+    unified_model_runs = ModelTaskUnifiedRuns(model_tasks, model_task_runs, temporal_model_bridge)
 
     from timepilot.generic_assets import GenericAssetStore
     from timepilot.data_platform import DataPlatform
@@ -129,71 +148,59 @@ def create_app(*, home: str | Path | None = None, embedded_worker: bool = True):
     publication_thread = None
     feature_thread = None
 
-    def _worker_loop():
-        # SQLite mode must run a single worker; process-level multi-host exclusion is not provided in v0.1.
-        while not stop.is_set():
-            try:
-                result = client.engine.work_once()
-            except Exception:
-                import logging
-                logging.getLogger(__name__).exception("Worker loop failed")
-                result = None
-            if not result:
-                stop.wait(client.settings.worker_poll_seconds)
-
-    def _upload_loop():
-        import logging
-        while not stop.is_set():
-            try:
-                result = import_jobs.work_once()
-            except Exception:
-                logging.getLogger(__name__).exception('Project upload worker failed')
-                result = None
-            if not result:
-                stop.wait(0.5)
-
     from timepilot.feature_semantics import FeatureSemanticService
     from timepilot.feature_registry import FeatureRegistry
     from timepilot.feature_execution import FeatureJobEngine
     semantic_features=FeatureSemanticService(projects,native)
     feature_registry=FeatureRegistry(projects,native,semantic_features)
     feature_jobs=FeatureJobEngine(projects,native,semantic_features,feature_registry)
+    from timepilot.feature_auto_analysis import FeatureAutoAnalysis
+    from timepilot.feature_auto_coordinator import FeatureAutoCoordinator
+    feature_auto_coordinator=FeatureAutoCoordinator(FeatureAutoAnalysis(
+        projects,native,semantic_features,feature_registry,feature_jobs,models))
 
-    def _feature_loop():
-        import logging
-        while not stop.is_set():
-            try:worked=feature_jobs.work_once()
-            except Exception:
-                logging.getLogger(__name__).exception('FeatureLab background job failed')
-                worked=False
-            if not worked:stop.wait(1.0)
+    def _feature_once():
+        # Advance both durable queues; a busy FeatureLab queue must not
+        # starve approved supervised-model tasks.
+        feature_worked = feature_cycle(feature_jobs, feature_auto_coordinator)
+        model_worked = model_task_runs.work_once()
+        return bool(feature_worked or model_worked)
 
-    def _publication_loop():
-        import logging
-        while not stop.is_set():
-            try:result=publication_jobs.work_once()
-            except Exception:
-                logging.getLogger(__name__).exception('Project publication worker failed')
-                result=None
-            if not result:stop.wait(0.5)
+    def _publication_once():
+        return publication_cycle(publication_jobs, projects, native, semantic_features,
+                                 feature_jobs, feature_auto_coordinator)
+
+    def _embedded_role_loop(role):
+        from timepilot.worker_supervisor import WorkerSupervisor, WorkerLeaseBusy, WorkerLeaseLost
+        runner = WorkerSupervisor(worker_registry, role, app.state.worker_actions[role],
+                                  poll_seconds=(client.settings.worker_poll_seconds
+                                                if role == 'forecast' else .75))
+        try:
+            runner.run(stop)
+        except (WorkerLeaseBusy, WorkerLeaseLost):
+            logging.getLogger(__name__).exception('Embedded worker role cannot continue: %s', role)
+            stop.set()  # Fail closed if any role is owned by another process.
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         nonlocal worker_thread, agent_thread, import_thread, publication_thread,feature_thread
         if embedded_worker:
-            worker_thread = threading.Thread(target=_worker_loop, name="timepilot-local-worker", daemon=True)
-            worker_thread.start()
-        if embedded_worker:
-            agent_thread = threading.Thread(target=agent_executor.work_loop,args=(stop,),
-                                            name='timepilot-agent-executor',daemon=True)
-            agent_thread.start()
-        if embedded_worker:
-            import_thread = threading.Thread(target=_upload_loop,name='timepilot-project-upload',daemon=True)
-            import_thread.start()
-            publication_thread=threading.Thread(target=_publication_loop,name='timepilot-project-publication',daemon=True)
-            publication_thread.start()
-            feature_thread=threading.Thread(target=_feature_loop,name='timepilot-featurelab-worker',daemon=True)
-            feature_thread.start()
+            occupied = [role for role, info in worker_registry.snapshot()['roles'].items()
+                        if info['online']]
+            if occupied:
+                raise RuntimeError('后台 Worker 角色已由其他进程占用：' + ', '.join(occupied))
+            worker_thread = threading.Thread(target=_embedded_role_loop, args=('forecast',),
+                                             name='timepilot-local-worker', daemon=True)
+            agent_thread = threading.Thread(target=_embedded_role_loop, args=('agent',),
+                                            name='timepilot-agent-executor', daemon=True)
+            import_thread = threading.Thread(target=_embedded_role_loop, args=('upload',),
+                                             name='timepilot-project-upload', daemon=True)
+            publication_thread = threading.Thread(target=_embedded_role_loop, args=('publication',),
+                                                  name='timepilot-project-publication', daemon=True)
+            feature_thread = threading.Thread(target=_embedded_role_loop, args=('feature',),
+                                              name='timepilot-featurelab-worker', daemon=True)
+            for thread in (worker_thread, agent_thread, import_thread, publication_thread, feature_thread):
+                thread.start()
         yield
         stop.set()
         if worker_thread:
@@ -227,13 +234,34 @@ def create_app(*, home: str | Path | None = None, embedded_worker: bool = True):
     app.state.project_publication_jobs = publication_jobs
     app.state.generic_assets = generic_assets
     app.state.modeling = modeling
+    app.state.model_tasks = model_tasks
+    app.state.model_task_runs = model_task_runs
+    app.state.unified_model_runs = unified_model_runs
+    app.state.temporal_model_bridge = temporal_model_bridge
     app.state.bi_agent = bi_agent
     app.state.derived = derived
     app.state.feature_semantic = semantic_features
     app.state.feature_registry = feature_registry
     app.state.feature_jobs = feature_jobs
+    app.state.feature_auto_coordinator = feature_auto_coordinator
+    # The exact same business actions run embedded or in five optional external
+    # OS processes; no queue semantics are silently changed by deployment mode.
+    app.state.worker_actions = {
+        'forecast': client.engine.work_once,
+        'agent': agent_executor.run_once,
+        'upload': import_jobs.work_once,
+        'publication': _publication_once,
+        'feature': _feature_once,
+    }
+    from timepilot.worker_supervisor import WorkerRegistry, ROLES, queue_summary
+    worker_registry = WorkerRegistry(settings.home)
+    app.state.worker_registry = worker_registry
+    from timepilot.system_logs_api import create_logs_router
+    app.include_router(create_logs_router(settings.home))
     app.include_router(create_projects_router(projects, understanding, native, import_jobs, publication_jobs))
     app.include_router(create_modeling_router(modeling))
+    from timepilot.model_task_api import create_model_task_router
+    app.include_router(create_model_task_router(model_tasks, model_task_runs, temporal_model_bridge, unified_model_runs))
     app.include_router(create_bi_agent_router(bi_agent))
     app.include_router(create_derived_router(derived,modeling,data_platform))
     from timepilot.feature_lab_api import create_feature_lab_router
@@ -253,31 +281,120 @@ def create_app(*, home: str | Path | None = None, embedded_worker: bool = True):
                        allow_origins=[] if security is not None else [os.getenv("TIMEPILOT_ALLOWED_ORIGIN", "http://localhost:5173")],
                        allow_methods=["GET", "POST"], allow_headers=["Content-Type"] )
 
+    @app.middleware('http')
+    async def diagnostic_request_log(request, call_next):
+        # Do not store query strings, bodies, cookies, auth headers or source row data.
+        begin = time.perf_counter()
+        rid = uuid.uuid4().hex[:12]
+        from timepilot.system_logs import REQUEST_ID
+        token = REQUEST_ID.set(rid)
+        path = request.url.path
+        try:
+            response = await call_next(request)
+            elapsed=(time.perf_counter()-begin)*1000
+            # Drop successful high-frequency polling; retain slow and failed requests.
+            if response.status_code>=400 or elapsed>=1000 or not (path in ('/api/v1/runs','/api/v1/system/logs')):
+                logging.getLogger('timepilot.http').log(
+                    logging.WARNING if response.status_code>=400 else logging.INFO,
+                    '%s %s status=%s duration_ms=%.1f', request.method, path,
+                    response.status_code, elapsed,extra={'request_id': rid})
+            response.headers['X-Request-ID'] = rid
+            return response
+        except Exception:
+            logging.getLogger('timepilot.http').exception(
+                '%s %s failed duration_ms=%.1f', request.method, path,
+                (time.perf_counter()-begin)*1000, extra={'request_id': rid})
+            raise
+        finally:
+            REQUEST_ID.reset(token)
+
+    @app.get('/api/v1/system/workers')
+    def worker_health():
+        """Admin-only in enterprise mode; no job payloads or user identities."""
+        report = worker_registry.snapshot()
+        if embedded_worker:
+            threads = (worker_thread, agent_thread, import_thread,
+                       publication_thread, feature_thread)
+            report['embedded'] = {role: bool(t and t.is_alive())
+                                  for role, t in zip(ROLES, threads)}
+        report['deployment'] = 'embedded' if embedded_worker else 'external'
+        report['queues'] = queue_summary(projects)
+        return report
+
     @app.get("/api/v1/health")
     def health():
         return {"status": "ok", "version": __version__, "ui_version": __version__, "mode": "enterprise" if security else "local", "embedded_worker": embedded_worker}
 
     @app.get('/api/v1/ready')
     def ready():
-        # A 200 response must mean the actual Perspective release assets are
-        # present and tied to the current frontend sources, not a basic fallback.
+        """Readiness probes binaries, metadata storage and embedded worker threads.
+
+        /health remains a cheap liveness signal. This endpoint cannot replace
+        an actual Chrome/real MES integration acceptance receipt.
+        """
         bundle = Path(__file__).resolve().parent / 'static' / 'native-bi'
         frontend = Path(__file__).resolve().parents[2] / 'frontend' / 'native-bi'
         status = bundle_status(bundle)
         source_current = frontend_matches_bundle(bundle, frontend)
         capability = native.capabilities()
-        if not (status['ready'] and source_current and
-                capability.get('duckdb') and capability.get('perspective_virtual_server_ready')):
-            missing=[]
-            if not capability.get('duckdb'): missing.append('DuckDB 运行依赖未就绪')
-            if not capability.get('perspective_virtual_server_ready'):
-                missing.append(capability.get('perspective_virtual_server_error') or 'Perspective Virtual Server 未就绪')
-            raise HTTPException(status_code=503, detail={
-                'ready': False, 'component': 'perspective_bundle',
-                'problems': status['problems'] + ([] if source_current else ['构建来源版本与当前源码不一致']) + missing,
-                'repair': '检查现有 Python 环境的 DuckDB/Perspective，并使用 bash TIMEPILOT.sh build 校验已编译 JS/WASM'})
-        return {'ready':True,'version':__version__,'perspective_bundle':status['version'],
-                'source_current':True}
+        components = {'native_bundle': bool(status['ready'] and source_current),
+                      'duckdb': bool(capability.get('duckdb')),
+                      'virtual_server': bool(capability.get('perspective_virtual_server_ready')),
+                      'metadata_db': False,'project_catalog': False,
+                      'data_storage': False,'embedded_workers': None}
+        problems=list(status['problems'])
+        if not source_current: problems.append('Perspective 构建与当前源码不匹配')
+        if not components['duckdb']: problems.append('DuckDB 运行依赖未就绪')
+        if not components['virtual_server']:
+            problems.append(capability.get('perspective_virtual_server_error') or 'Perspective Virtual Server 未就绪')
+        try:
+            from sqlalchemy import text as sql_text
+            with client.store.sessions() as session:
+                session.execute(sql_text('SELECT 1')).scalar_one()
+            components['metadata_db']=True
+        except Exception as exc:
+            problems.append('元数据数据库无法查询: '+type(exc).__name__)
+        try:
+            with projects._db() as db:
+                db.execute('SELECT 1').fetchone()
+            components['project_catalog']=True
+        except Exception as exc:
+            problems.append('项目目录数据库无法查询: '+type(exc).__name__)
+        try:
+            import shutil
+            disk=shutil.disk_usage(settings.home)
+            components['data_storage']=settings.home.is_dir() and disk.free>=settings.min_free_gb*(1024**3)
+            if not components['data_storage']:
+                problems.append('运行数据目录不可用或剩余磁盘空间不足')
+        except OSError as exc:
+            problems.append('运行数据目录无法检查: '+type(exc).__name__)
+        if embedded_worker:
+            workers=[worker_thread,agent_thread,import_thread,publication_thread,feature_thread]
+            components['embedded_workers']=bool(all(t is not None and t.is_alive() for t in workers))
+            if not components['embedded_workers']:problems.append('内置后台 Worker 尚未启动或已经退出')
+        # Heartbeats are cross-process and fenced; API-only readiness demands all
+        # five dedicated worker roles. A missing role must never be treated as OK.
+        external_report = None
+        if not embedded_worker:
+            external_report = worker_registry.snapshot()
+            components['embedded_workers'] = False
+            components['external_workers'] = all(
+                info['online'] and info['status'] in ('idle', 'busy')
+                for info in external_report['roles'].values())
+            if not components['external_workers']:
+                missing = [role for role, info in external_report['roles'].items()
+                           if not info['online'] or info['status'] == 'memory_paused']
+                problems.append('独立后台 Worker 缺失或心跳过期: ' + ', '.join(missing))
+        success=all(value for key, value in components.items()
+                    if value is not None and (embedded_worker or key != 'embedded_workers'))
+        payload={'ready':success,'version':__version__,'components':components,
+                 'perspective_bundle':status['version'], 'source_current':source_current,
+                 'external_worker_verified':(components['external_workers'])
+                     if external_report is not None else None}
+        if not success:
+            payload['problems']=problems
+            raise HTTPException(status_code=503, detail=payload)
+        return payload
 
     @app.get("/api/v1/templates/standard-timeseries.csv")
     def standard_template():

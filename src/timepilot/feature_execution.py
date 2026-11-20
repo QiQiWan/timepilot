@@ -11,7 +11,7 @@ import socket
 import threading
 from datetime import datetime,timedelta,timezone
 from pathlib import Path
-from uuid import uuid4
+from uuid import uuid4, uuid5, NAMESPACE_URL
 from timepilot.feature_contracts import FeatureSpecV2,canonical,digest
 from timepilot.feature_compiler import FeatureCompiler
 from timepilot.feature_profiler import FeatureProfiler
@@ -20,7 +20,18 @@ from timepilot.storage import sha256_file
 from timepilot.enterprise_security import CURRENT_PRINCIPAL,SecurityError
 
 
-def deadline(minutes=45):return (datetime.now(timezone.utc)+timedelta(minutes=minutes)).isoformat()
+def _lease_seconds(value=None):
+    """Short, bounded leases; never assume a process holding a lease is alive."""
+    try: seconds=int(value if value is not None else os.getenv('TIMEPILOT_FEATURE_LEASE_SECONDS','90'))
+    except (TypeError,ValueError):seconds=90
+    return min(600,max(30,seconds))
+
+
+def deadline(minutes=None, *, seconds=None):
+    # The old explicit minutes form remains for test and extension compatibility.
+    delta=timedelta(seconds=_lease_seconds() if minutes is None and seconds is None else
+                    (int(seconds) if seconds is not None else 60*float(minutes)))
+    return (datetime.now(timezone.utc)+delta).isoformat()
 
 
 class FeatureJobEngine:
@@ -29,6 +40,7 @@ class FeatureJobEngine:
         self.profiler=FeatureProfiler(semantic,native)
         self.root=projects.home/'feature_lab'
         self.worker_id=socket.gethostname()+'-'+str(os.getpid())+'-'+str(uuid4())[:8]
+        self.lease_seconds=_lease_seconds()
 
     def _editor(self,pid):self.registry._editor(pid)
     def _actor(self):return self.registry._actor()
@@ -70,8 +82,8 @@ class FeatureJobEngine:
         self._editor(pid)
         if not 1<=len(candidate_ids)<=MAX_PREVIEW or len(set(candidate_ids))!=len(candidate_ids):
             raise ValueError('一次最多预览 8 个不同候选')
-        if not 1<=max_rows<=100 or not 100<=scan_budget<=500000:
-            raise ValueError('候选预览的条数或扫描预算无效')
+        if not 1<=max_rows<=100 or not 100<=scan_budget<=2_000_000:
+            raise ValueError('候选预览预算最多为 200 万行；更大数据需使用经过批准的分区任务')
         sessions=FeatureCandidateSessions(self.projects,self.native,self.semantic,self.registry)
         doc=sessions.get(pid,sid)
         if doc['stale']:raise ValueError('候选会话来源或字段契约已变化')
@@ -164,12 +176,24 @@ class FeatureJobEngine:
                    updated_at=? WHERE run_id=?''',(jid,now(),jid))
         return self.get_job(pid,jid)
 
-    def heartbeat(self,jid):
+    def heartbeat(self,jid,lease_token=None,epoch=None):
+        # Each claim has a unique fencing token, including repeated claims in
+        # the same worker instance. A late heartbeat cannot extend a new lease.
+        if not lease_token or epoch is None:return False
         with self.projects._lock,self.projects._db() as db:
-            row=db.execute('''UPDATE feature_jobs SET lease_until=?,updated_at=? WHERE job_id=?
-                AND lease_owner=? AND status IN ('running','cancel_requested')''',
-                (deadline(),now(),jid,self.worker_id))
+            row=db.execute("""UPDATE feature_jobs SET lease_until=?,updated_at=? WHERE job_id=?
+                AND lease_owner=? AND lease_epoch=? AND status IN ('running','cancel_requested')
+                AND lease_until>=?""",
+                (deadline(seconds=self.lease_seconds),now(),jid,lease_token,epoch,now()))
             return bool(row.rowcount)
+
+    def _lease_valid(self,db,row,*,require_running=True):
+        current=db.execute("""SELECT status,lease_owner,lease_epoch,lease_until FROM feature_jobs
+            WHERE job_id=? AND project_id=?""",(row['job_id'],row['project_id'])).fetchone()
+        return bool(current and (not require_running or current['status']=='running')
+            and current['lease_owner']==row.get('_lease_token')
+            and current['lease_epoch']==row.get('_lease_epoch')
+            and current['lease_until'] and current['lease_until']>=now())
 
     def reap_expired(self):
         'Bounded retries: never leave expired jobs permanently in running state.'
@@ -204,22 +228,26 @@ class FeatureJobEngine:
              status='queued' OR (status='running' AND lease_until<? AND attempts<3)
              ORDER BY created_at LIMIT 1''',(now(),)).fetchone()
             if row is None:return None
-            updated=db.execute('''UPDATE feature_jobs SET status='running',lease_owner=?,lease_until=?,
-                      attempts=attempts+1,progress=0.05,updated_at=? WHERE job_id=?
-                      AND (status='queued' OR (status='running' AND lease_until<?))''',
-                      (self.worker_id,deadline(),now(),row['job_id'],now()))
+            token=self.worker_id+':'+uuid4().hex
+            updated=db.execute("""UPDATE feature_jobs SET status='running',lease_owner=?,lease_until=?,
+                      lease_epoch=lease_epoch+1,attempts=attempts+1,progress=0.05,updated_at=? WHERE job_id=?
+                      AND (status='queued' OR (status='running' AND lease_until<?))""",
+                      (token,deadline(seconds=self.lease_seconds),now(),row['job_id'],now()))
             if not updated.rowcount:return None
             if row['kind']=='materialize':
                 db.execute("UPDATE feature_runs SET status='running',updated_at=? WHERE run_id=?",
                            (now(),row['job_id']))
-            return dict(row)
+            result=dict(row)
+            result['_lease_token']=token
+            result['_lease_epoch']=int(row['lease_epoch'])+1
+            return result
 
     def _finish(self,row,status,result=None,error_code=None,error_text=None):
         jid=row['job_id'];pid=row['project_id']
         with self.projects._lock,self.projects._db() as db:
-            cur=db.execute('SELECT status,lease_owner FROM feature_jobs WHERE job_id=? AND project_id=?',
-                           (jid,pid)).fetchone()
-            if cur is None or cur['lease_owner']!=self.worker_id:return
+            if not self._lease_valid(db,row,require_running=False):return
+            cur=db.execute('SELECT status FROM feature_jobs WHERE job_id=?',(jid,)).fetchone()
+            if cur is None:return
             if cur['status']=='cancel_requested':status='cancelled';result=None
             db.execute('''UPDATE feature_jobs SET status=?,progress=?,lease_owner=NULL,lease_until=NULL,
                   result_json=?,error_code=?,error_text=?,updated_at=? WHERE job_id=?''',
@@ -236,8 +264,8 @@ class FeatureJobEngine:
         token=None
         pulse_stop=threading.Event()
         def pulse():
-            while not pulse_stop.wait(10):
-                if not self.heartbeat(row['job_id']):return
+            while not pulse_stop.wait(max(5,min(15,self.lease_seconds//4))):
+                if not self.heartbeat(row['job_id'],row['_lease_token'],row['_lease_epoch']):return
         pulse_thread=threading.Thread(target=pulse,daemon=True,name='featurelab-lease-heartbeat')
         pulse_thread.start()
         try:
@@ -311,11 +339,15 @@ class FeatureJobEngine:
         contract=self.semantic.latest(pid,aid,vid,source=source)
         if contract.revision!=payload['contract_revision']:raise ValueError('画像契约版本已变化')
         result=self.profiler.compute(pid,aid,vid,contract)
-        profile_id=str(uuid4())
+        profile_id=str(uuid5(NAMESPACE_URL,'timepilot-profile:'+row['job_id']))
         with self.projects._lock,self.projects._db() as db:
-            db.execute('''INSERT INTO feature_profiles(profile_id,project_id,asset_id,version_id,
+            if not self._lease_valid(db,row):raise ValueError('画像作业租约失效，拒绝写入旧结果')
+            db.execute('''INSERT OR IGNORE INTO feature_profiles(profile_id,project_id,asset_id,version_id,
               source_sha256,contract_revision,scope,result_json,created_at) VALUES(?,?,?,?,?,?,?,?,?)''',
               (profile_id,pid,aid,vid,source['sha256'],contract.revision,'full',canonical(result),now()))
+            # Reclaiming a crashed profile task may repeat a committed profile.
+            # Replace evidence inside this fenced transaction to avoid duplicates.
+            db.execute('DELETE FROM feature_profile_evidence WHERE profile_id=?',(profile_id,))
             for field in result['fields']:
                 db.execute('''INSERT INTO feature_profile_evidence VALUES(?,?,?,?,?)''',
                     (str(uuid4()),profile_id,field['field_id'],'full',canonical(field)))
@@ -370,6 +402,8 @@ class FeatureJobEngine:
             'spec_sha256':rec['spec_sha256'],'pit':pit,'materialized':False,
             'note':'仅返回前N条计算结果；计算可读取不超过扫描预算的原始数据，未生成正式物化资产'}
         with self.projects._lock,self.projects._db() as db:
+            if not self._lease_valid(db,row):
+                raise ValueError('预览任务租约已失效，禁止提交过期的预览回执')
             db.execute('''INSERT INTO feature_preview_receipts
                 (preview_id,project_id,job_id,set_id,scope,rows_returned,source_sha256,result_sha256,created_at)
                 VALUES(?,?,?,?,?,?,?,?,?)''',
@@ -388,11 +422,24 @@ class FeatureJobEngine:
         if src['sha256']!=payload['source_sha256']:raise ValueError('数据源版本指纹不一致')
         contract=self.semantic.latest(pid,spec.source.asset_id,spec.source.version_id,source=src)
         if contract.revision!=spec.contract_revision:raise ValueError('计算前契约已经变化')
+        # A previous attempt may have committed a fully verified artifact, then
+        # died before marking the queue job succeeded. Reuse exactly that row.
+        with self.projects._db() as db:
+            previous=db.execute('SELECT schema_json,sha256,relpath FROM feature_artifacts WHERE project_id=? AND run_id=?',
+                                (pid,rid)).fetchone()
+        if previous:
+            saved=json.loads(previous['schema_json'])
+            output=(self.root/previous['relpath']).resolve()
+            if (output.is_relative_to(self.root.resolve()) and output.is_file()
+                and saved.get('sha256')==previous['sha256']
+                and sha256_file(output)==previous['sha256']):
+                return saved
+            raise ValueError('已有产物记录与文件不匹配，禁止重复提交')
         compiler=FeatureCompiler(contract,spec)
-        artifact_id=str(uuid4())
+        artifact_id=str(uuid5(NAMESPACE_URL,'timepilot-materialize:'+rid))
         directory=self.root/pid/'artifacts'/artifact_id
         directory.mkdir(parents=True,exist_ok=True)
-        tmp=directory/'data.building.parquet';out=directory/'data.parquet'
+        tmp=directory/('data.building.'+str(row['_lease_epoch'])+'.'+row['_lease_token'].rsplit(':',1)[-1]+'.parquet');out=directory/'data.parquet'
         tmp.unlink(missing_ok=True)
         try:
             with self.native._connection() as con:
@@ -409,22 +456,26 @@ class FeatureJobEngine:
                 job=db.execute('SELECT status FROM feature_jobs WHERE job_id=?',(rid,)).fetchone()
                 if not job or job['status']=='cancel_requested':raise ValueError('任务已取消，放弃结果物化')
             file_sha=sha256_file(tmp)
-            os.replace(tmp,out)
+            # The raw snapshot could have been replaced while DuckDB was
+            # computing. Re-verify its bytes before the fenced commit.
+            if self.native.verify(spec.source.asset_id).get('valid') is not True:
+                raise ValueError('计算期间原始数据文件变化，拒绝提交旧特征产物')
             metadata={'artifact_id':artifact_id,'row_count':int(count),'columns':names,
                       'source_sha256':src['sha256'],'spec_sha256':record['spec_sha256'],
                       'pit':pit,'sha256':file_sha,'scope':'full'}
             with self.projects._lock,self.projects._db() as db:
-                lease=db.execute('''SELECT status,lease_owner,lease_until FROM feature_jobs
-                    WHERE project_id=? AND job_id=?''',(pid,rid)).fetchone()
+                lease_valid=self._lease_valid(db,row)
                 current_set=db.execute('''SELECT revision,spec_sha256,source_sha256 FROM feature_sets
                     WHERE project_id=? AND set_id=?''',(pid,sid)).fetchone()
-                if (not lease or lease['status']!='running' or lease['lease_owner']!=self.worker_id
-                        or not lease['lease_until'] or lease['lease_until']<now()):
+                if not lease_valid:
                     raise ValueError('计算任务租约已过期或被取消，禁止提交物化产物')
                 if (not current_set or current_set['revision']!=payload['revision']
                         or current_set['spec_sha256']!=payload['spec_sha256']
                         or current_set['source_sha256']!=payload['source_sha256']):
                     raise ValueError('计算期间特征集版本发生变化，拒绝提交旧结果')
+                # Stage rename only after the transaction has verified the
+                # current fencing token. Old workers can never replace output.
+                os.replace(tmp,out)
                 db.execute('''INSERT INTO feature_artifacts
                  (artifact_id,run_id,project_id,sha256,relpath,row_count,schema_json,source_sha256,created_at)
                  VALUES (?,?,?,?,?,?,?,?,?)''',

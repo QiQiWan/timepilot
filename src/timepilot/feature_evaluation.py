@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 from timepilot.feature_contracts import EvaluationProtocol,TaskSpecV2,canonical,digest
 from timepilot.feature_compiler import NUMERIC
-from timepilot.feature_split_protocol import build_folds
+from timepilot.feature_split_protocol import build_folds, build_static_folds
 from timepilot.projects import now
 
 
@@ -69,7 +69,7 @@ def _metrics(truth,pred,kind):
 
 
 
-def _fit_predict(train, train_y, valid, kind, family='linear', *, seed=42):
+def _fit_predict(train, train_y, valid, kind, family='linear', *, seed=42, return_model=False):
     """Real sklearn estimator, with imputation and scaling fitted on train only."""
     from sklearn.impute import SimpleImputer
     from sklearn.pipeline import make_pipeline
@@ -99,10 +99,11 @@ def _fit_predict(train, train_y, valid, kind, family='linear', *, seed=42):
         model=make_pipeline(imputer,estimator)
     else:raise ValueError('未知模型方案：'+str(family))
     model.fit(a,np.asarray(train_y))
-    return (model.predict(b) if kind=='regression' else model.predict_proba(b)[:,1])
+    prediction = model.predict(b) if kind=='regression' else model.predict_proba(b)[:,1]
+    return (prediction, model) if return_model else prediction
 
 
-def _evaluate_matrix(data,base,outputs,task,protocol,contract,*,source_sha256, spec_sha256):
+def _evaluate_matrix(data,base,outputs,task,protocol,contract,*,source_sha256, spec_sha256, feature_groups=None):
     """Pure value-level evaluator usable by the live Parquet executor and offline tests.
 
     `data` contains the source fields and approved generated columns, never
@@ -112,13 +113,32 @@ def _evaluate_matrix(data,base,outputs,task,protocol,contract,*,source_sha256, s
     from timepilot.feature_selection import select_training_features
     from timepilot.feature_stability import drift_summary,sliced_metrics,summarize_folds
     from timepilot.feature_search import search_training_fold
+    from timepilot.feature_safety import ensure_supervised_contract
+    if canonical(task)!=canonical(protocol.task):
+        raise ValueError('评价任务与固定的评价协议不一致')
+    # Full materialization enforces the temporal source contract; static
+    # matrix evaluation also needs strict attestation here. Historical pure
+    # temporal numerical fixtures do not carry a materialization contract.
+    if task.split_kind in ('kfold','stratified','group'):
+        ensure_supervised_contract(contract,task)
     mapping={f.field_id:f.source_name for f in contract.fields}
-    time_col=mapping[task.prediction_time_field_id]
     target=mapping[task.label_field_id]
-    available_col=mapping[task.label_available_at_field_id]
-    group_cols=[mapping[fid] for fid in task.group_field_ids] if task.split_kind=='grouped_time' else []
-    if not all(col in data.columns for col in [time_col,target,available_col,*base,*outputs,*group_cols]):
-        raise ValueError('物化结果缺少受约束的原字段、标签、时间或派生特征列')
+    static=task.split_kind in ('kfold','stratified','group')
+    time_col=mapping[task.prediction_time_field_id] if not static else None
+    available_col=mapping[task.label_available_at_field_id] if not static else None
+    group_cols=[mapping[fid] for fid in task.group_field_ids] if task.split_kind in ('grouped_time','group') else []
+    requested=[target,*base,*outputs,*group_cols]
+    if not static:requested.extend([time_col,available_col])
+    if len(set([*base,*outputs]))!=len(base)+len(outputs) or target in base or target in outputs:
+        raise ValueError('模型基线与候选必须不同名，不得包含监督标签')
+    if not all(col in data.columns for col in requested):
+        raise ValueError('物化结果缺少受约束的原字段、标签、分组或派生特征列')
+    by_name={f.source_name:f for f in contract.fields}
+    if any(by_name.get(name) is None or by_name[name].role!='value' or
+           by_name[name].confirmation!='confirmed' or by_name[name].classification=='restricted' for name in base):
+        raise ValueError('模型基线必须是已确认且非受限的过程值字段，不得包含标签、时间/实体编号或受限字段')
+    if any(name in by_name and by_name[name].classification=='restricted' for name in outputs):
+        raise ValueError('受限源字段不能作为候选特征绕过监督输入检查')
     slices=[]
     by_id={f.field_id:f for f in contract.fields}
     for fid in protocol.slices.field_ids:
@@ -128,14 +148,40 @@ def _evaluate_matrix(data,base,outputs,task,protocol,contract,*,source_sha256, s
         if field.source_name not in data.columns:
             raise ValueError('物化数据缺少稳定性分组字段：'+field.source_name)
         slices.append(field.source_name)
-    if task.split_kind=='grouped_time':
+    if task.split_kind in ('time','grouped_time'):
+        # Include per-device validation diagnostics even when each device has
+        # observations in multiple chronological folds. Validation-only slices
+        # do not enter model fitting or feature selection.
+        entity_cols=[mapping[fid] for fid in task.entity_field_ids
+                     if fid in mapping and mapping[fid] in data.columns]
+        slices=list(dict.fromkeys([*slices,*entity_cols,*group_cols]))
+    elif task.split_kind=='group':
         slices=list(dict.fromkeys([*slices,*group_cols]))
-    folds,manifest=build_folds(data,time_column=time_col,n_splits=task.n_splits,
-           purge_rows=task.purge_rows,group_columns=group_cols)
     y, label_contract=validate_target(data[target],task.task_type)
-    available=pd.to_datetime(data[available_col],utc=True,errors='coerce')
-    decision=pd.to_datetime(data[time_col],utc=True,errors='coerce')
-    if available.isna().any():raise ValueError('标签可用时间含非法或缺失值，无法进行训练时点过滤')
+    # A nominated final group holdout is excluded from ALL outer-fold
+    # selection/validation, not merely from the final fitting step.
+    # The split is computed solely from group IDs, decision timestamps and
+    # label-availability timestamps, never target labels or model scores.
+    if protocol.industrial_transfer is not None:
+        from timepilot.feature_industrial_transfer import transfer_partition
+        train_pool,_,_=transfer_partition(data,contract,task,protocol.industrial_transfer)
+        subset=data.iloc[train_pool].reset_index(drop=True)
+        subset_y=y[train_pool]
+    else:
+        train_pool=np.arange(len(data),dtype=int)
+        subset=data
+        subset_y=y
+    if static:
+        local_folds,manifest=build_static_folds(subset,subset_y,split_kind=task.split_kind,
+            n_splits=task.n_splits,seed=protocol.seed,group_columns=group_cols)
+        available=None;decision=None
+    else:
+        local_folds,manifest=build_folds(subset,time_column=time_col,n_splits=task.n_splits,
+            purge_rows=task.purge_rows,group_columns=group_cols)
+        available=pd.to_datetime(data[available_col],utc=True,errors='coerce')
+        decision=pd.to_datetime(data[time_col],utc=True,errors='coerce')
+        if available.isna().any():raise ValueError('标签可用时间含非法或缺失值，无法进行训练时点过滤')
+    folds=[(train_pool[a],train_pool[b]) for a,b in local_folds]
     all_fields=[*base,*outputs]
     if len(all_fields)>1024 or len(data)*len(all_fields)>12_000_000:
         raise ValueError('训练矩阵超过 1024 列或 1200 万单元限额')
@@ -146,11 +192,22 @@ def _evaluate_matrix(data,base,outputs,task,protocol,contract,*,source_sha256, s
     ids_by_name={f.source_name:f.field_id for f in contract.fields}
     model_fold=[];selections=[];search_reports=[]
     for i,(train_idx,valid_idx) in enumerate(folds):
-        cutoff=decision.iloc[train_idx].max()
-        train_idx=train_idx[(available.iloc[train_idx]<=cutoff).fillna(False).to_numpy()]
-        valid_idx=valid_idx[np.isfinite(y[valid_idx])]
+        cutoff=None if static else decision.iloc[train_idx].max()
+        if not static:
+            train_idx=train_idx[(available.iloc[train_idx]<=cutoff).fillna(False).to_numpy()]
         if len(train_idx)<40 or len(valid_idx)<15:
-            raise ValueError('标签可用时点过滤后训练/验证记录不足（各需40/15）')
+            raise ValueError('安全切分及标签可用时间过滤后训练/验证记录不足（各需40/15）')
+        if set(train_idx)&set(valid_idx):
+            raise ValueError('训练行与验证行交叉，禁止运行模型评价')
+        # The original split can be further narrowed by label-availability
+        # checks. Record exactly the rows that were fitted, not the prefilter.
+        manifest[i]['train_count']=len(train_idx)
+        manifest[i]['valid_count']=len(valid_idx)
+        manifest[i]['train_rows_sha256']=digest(train_idx.tolist())
+        manifest[i]['valid_rows_sha256']=digest(valid_idx.tolist())
+        manifest[i]['training_cutoff']=cutoff.isoformat() if cutoff is not None else None
+        manifest[i]['label_availability_filtered']=not static
+        manifest[i]['disjoint_verified']=True
         if task.task_type=='binary_classification' and len(set(y[train_idx]))<2:
             raise ValueError('训练折仅包含一个类别；请调整切分或收集更多缺陷标签')
         selection=select_training_features(matrix[train_idx],y[train_idx],base,outputs,
@@ -184,18 +241,31 @@ def _evaluate_matrix(data,base,outputs,task,protocol,contract,*,source_sha256, s
                     slice_rows.append({'variant':variant,'groups':sliced_metrics(data.iloc[valid_idx],
                         y[valid_idx],prediction,task.task_type,slices,protocol.slices)})
             by_model[model]=by_variant
+        # Bounded group ablation uses the same outer fold and only refits from
+        # that fold's training rows. Group identities come from the immutable
+        # feature specification, never from validation-label ranking.
+        from timepilot.feature_ablation import ablate_fold
+        ablation=ablate_fold(xtrain,xvalid,y[train_idx],y[valid_idx],
+             raw_count=nbase,names=all_fields,selected_indices=selected,
+             task_type=task.task_type,family=protocol.models[0],seed=protocol.seed,
+             groups=feature_groups,max_groups=3)
         stability=drift_summary(xtrain[:,chosen],xvalid[:,chosen],
                         [all_fields[idx] for idx in chosen],max_fields=30)
         quality=(fold_quality(y[valid_idx]) if task.task_type=='binary_classification'
                  else {'sample_count':len(valid_idx)})
         model_fold.append({'fold':i,'train_count':int(len(train_idx)),
-            'valid_count':int(len(valid_idx)),'training_cutoff':cutoff.isoformat(),
+            'valid_count':int(len(valid_idx)),
+            'training_cutoff':cutoff.isoformat() if cutoff is not None else None,
+            'split_kind':task.split_kind,'train_rows_sha256':manifest[i]['train_rows_sha256'],
+            'valid_rows_sha256':manifest[i]['valid_rows_sha256'],
             'model_metrics':by_model,'metrics':by_model[protocol.models[0]],
             'validation_label_quality':quality,
             'training_feature_selection':selection,'training_feature_diagnostics':selection,
             'feature_stability':stability,'group_stability':slice_rows,
-            'search':search,
+            'search':search,'ablation':ablation,
             'warnings':['验证集只有一个类别，AP/召回率可能不可用'] if quality.get('single_class') else []})
+    from timepilot.feature_ablation import summarize_ablation
+    ablation_summary=summarize_ablation(model_fold)
     # Search support is evidence across folds, never computed from pooled val labels.
     selected_counts={name:sum(name in row['selected_features'] for row in selections) for name in outputs}
     search_freq={}
@@ -210,6 +280,19 @@ def _evaluate_matrix(data,base,outputs,task,protocol,contract,*,source_sha256, s
         recipe['candidate_id']='autofeat_'+digest(recipe)[:18]
         recipe['status']='requires_manual_review_and_materialization'
     summary=summarize_folds(model_fold,task.task_type)
+    # Jaccard is computed on selection sets from *training folds* only.
+    # All-empty selections are reported as unavailable, not perfect stability.
+    pairs=[]
+    for i in range(len(selections)):
+        for j in range(i+1,len(selections)):
+            a=set(selections[i]['selected_features']);b=set(selections[j]['selected_features'])
+            if a or b:pairs.append(len(a&b)/len(a|b))
+    selection_stability={'method':'pairwise_jaccard_training_selection',
+        'mean_jaccard':round(float(np.mean(pairs)),6) if pairs else None,
+        'min_jaccard':round(float(min(pairs)),6) if pairs else None,
+        'compared_pairs':len(pairs),
+        'stable_all_folds':[x for x in outputs if all(x in r['selected_features'] for r in selections)],
+        'scope':'training_fold_only'}
     objective='mae' if task.task_type=='regression' else 'average_precision'
     objective_sign=-1 if objective=='mae' else 1
     comparison=[]
@@ -236,28 +319,41 @@ def _evaluate_matrix(data,base,outputs,task,protocol,contract,*,source_sha256, s
              'objective':objective,'paired_folds':comparisons,'positive_folds':gains,
              'mean_improvement':round(mean_gain,6) if mean_gain is not None else None,
              'minimum_practical_gain':round(minimum,6),'verdict':verdict,
-             'interpretation':'仅外层时间验证折的描述性结果，最小实际收益基于原始字段基线的相对阈值；业务成本和上线阈值需单独评价'})
+             'interpretation':'仅同一外层验证折的描述性结果，实际收益门槛以原始字段基线为参照；上线前仍需独立业务验证'})
+    from timepilot.feature_industrial_transfer import evaluate_industrial_transfer
+    locked_transfer=evaluate_industrial_transfer(data,matrix,y,base,outputs,contract,task,protocol,
+        source_sha256=source_sha256,spec_sha256=spec_sha256)
     return {'mode':'supervised' ,'task_type':task.task_type,
+            'split_kind':task.split_kind,'split_seed':protocol.seed,
+            'split_assumptions':('confirmed_static_independence_and_row_local_features' if static
+                                 else 'verified_temporal_decision_and_label_availability'),
             'source_sha256':source_sha256,'spec_sha256':spec_sha256,
             'split_manifest_sha256':digest(manifest),'fold_manifest':manifest,
             'folds':model_fold,'model_families':protocol.models,
             'baseline':'sklearn_linear_or_random_forest','training_only_preprocessing':True,
             'training_fold_feature_selection':True,
-            'label_contract':label_contract,'label_availability_checked':True,
+            'label_contract':label_contract,'label_availability_checked':not static,
+            'static_independence_confirmed':bool(static and task.static_independence_confirmed),
             'selection_policy':protocol.selection.model_dump(),
             'search_policy':protocol.search.model_dump(),
             'slice_policy':protocol.slices.model_dump(),
             'screening_recommendations':comparison,
             'selection_frequency':sorted([{'feature':k,'selected_in_folds':v,'total_folds':len(folds)}
                 for k,v in selected_counts.items()],key=lambda item:(-item['selected_in_folds'],item['feature'])),
+            'selection_stability':selection_stability,
+            'feature_group_ablation':ablation_summary,
+            'industrial_transfer_holdout':locked_transfer,
             'searched_candidate_recipes':candidates,
             'stability_summary':summary,
             'paired_comparison':paired_fold_comparison(model_fold,task.task_type),
             'variant_comparison':{
                 v:paired_fold_comparison(model_fold,task.task_type,variant=v)
                 for v in ('selected_features','auto_search') if v!='auto_search' or protocol.search.enabled},
-            'limitations':['训练折内选择与内部时间验证控制泄漏，不能证明因果关系',
+            'limitations':['特征选择和模型预处理仅利用各训练折，不能证明因果关系',
+                '静态评价依赖人工确认样本独立与预测时点特征可用性；没有时间证据时不得称为时间外推验证' if static else
+                '时间评价仍需检查上线决策时刻与工况漂移，历史回测不等于生产验证',
                 '模型评价使用固定位 0.5 分类阈值；上线前应按业务成本另行进行训练期阈值调优',
+                '开启设备/工况留出时，模型训练和外层验证不接触该组标签；上游候选可能来自全源无监督画像，不能宣称完全盲法最终验证' if locked_transfer else '历史交叉验证不能代替独立最终测试',
                 '没有独立企业生产数据和完整模型部署回测时不得声明量产适用']}
 
 
@@ -402,8 +498,11 @@ class FeatureEvaluator:
                   and f.source_name in data.columns]
             if not base:raise ValueError('缺少已确认的原始数值过程字段，无法构建预测基线')
             output=[f.output_name for f in spec.features]
+            groups={f.output_name:(f.operator_id.split('.')[0]+' / '+','.join(f.input_field_ids))
+                    for f in spec.features}
             report=_evaluate_matrix(data,base,output,task,protocol,contract,
-                source_sha256=rec['source_sha256'],spec_sha256=rec['spec_sha256'])
+                source_sha256=rec['source_sha256'],spec_sha256=rec['spec_sha256'],
+                feature_groups=groups)
             # Bind the actual physical Parquet consumed by this evaluation.
             # A source/spec fingerprint alone would not distinguish separately
             # materialized files or make a same-artifact E2E receipt auditable.

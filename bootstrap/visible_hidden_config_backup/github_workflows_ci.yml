@@ -13,6 +13,9 @@ jobs:
       - uses: astral-sh/setup-uv@v6
       - name: Use exact project Python
         run: uv python install 3.12.12
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
       - name: Install runtime and test dependencies
         run: uv pip install --python "$(uv python find 3.12.12)" -r requirements.txt
       - name: Check release source and dependency contract
@@ -20,8 +23,64 @@ jobs:
           $(uv python find 3.12.12) scripts/verify_installation.py --require-runtime
           $(uv python find 3.12.12) scripts/sync_requirements.py --check
           $(uv python find 3.12.12) scripts/verify_native_bi_release.py --require-python31212 --require-duckdb
+      - name: v0.37.9 safe recovery and offline supply chain unit regressions
+        run: $(uv python find 3.12.12) -m pytest -q tests/test_v0379_runtime_recovery.py tests/test_v0379_offline_release.py
+      - name: v0.38.2 scoped statistics and task-first front-end regressions
+        run: |
+          $(uv python find 3.12.12) -m pytest -q tests/test_featurelab380_field_scope.py
+          node --test frontend/native-bi/tests/featurelab380_task_scope.test.mjs
+      - name: v0.38.2 live worker lease fencing and process kill regression
+        run: |
+          $(uv python find 3.12.12) -m pytest -q tests/test_v0381_worker_supervisor.py tests/test_v0382_light_runtime_and_fencing.py
+          node --test frontend/native-bi/tests/featurelab381_worker_diagnostics.test.mjs
+      - name: v0.38.2 real five-process fresh-home and orphan prevention
+        run: $(uv python find 3.12.12) scripts/featurelab382_worker_acceptance.py --out reports/v0382/worker_subprocess.json
+      - name: v0.38.2 physical query latency and RSS evidence
+        run: $(uv python find 3.12.12) scripts/featurelab381_performance.py --require-target --out reports/v0382/performance.json
+      - name: v0.38.5 durable publication, crash recovery and source identity
+        run: |
+          $(uv python find 3.12.12) -m pytest -q tests/test_v0383_publication_reconciliation.py tests/test_v0384_publication_identity.py tests/test_v0385_durable_publication.py tests/test_project_publication_jobs_v020.py
+          node --test frontend/native-bi/tests/featurelab383_reconciliation_ui.test.mjs frontend/native-bi/tests/featurelab385_publication_journal.test.mjs
+      - name: v0.38.6 native snapshot intent, orphan isolation and fail-closed QA
+        run: $(uv python find 3.12.12) -m pytest -q tests/test_v0386_native_recovery.py
+      - name: v0.38.6 real DuckDB/Parquet subprocess crash recovery (release blocker)
+        run: $(uv python find 3.12.12) scripts/native_bi_physical_crash_acceptance.py --require-target --out reports/v0386/native_bi_crash.json
+      - name: v0.38.7 bounded registered asset audit and unsafe filesystem regressions
+        run: $(uv python find 3.12.12) -m pytest -q tests/test_v0387_integrity_audit.py
+      - name: v0.38.7 physical registered Parquet SHA/SQLite verification (release blocker)
+        run: $(uv python find 3.12.12) scripts/v0387_physical_integrity_acceptance.py --require-target --out reports/v0387/registered_integrity.json
+      - name: v0.38.8 release ZIP integrity, tamper and offline-claim regressions
+        run: $(uv python find 3.12.12) -m pytest -q tests/test_v0388_archive_gate.py
       - name: Full Python regression suite
         run: $(uv python find 3.12.12) -m pytest -q -rs
+      - name: v0.37.1 Perspective loader, WebSocket and feature BI regression
+        run: $(uv python find 3.12.12) -m pytest -q tests/test_v0371_bi_repair.py
+      - name: v0.37.5-7 SQL correctness, request race, incident and source regression
+        run: |
+          $(uv python find 3.12.12) -m pytest -q tests/test_featurelab377_dashboard_regression.py tests/test_featurelab378_contract_and_cache.py
+          node --test frontend/native-bi/tests/featurelab377_chart_race.test.mjs frontend/native-bi/tests/featurelab378_metric_contract.test.mjs
+      - name: v0.37.5-7 fixed physical DuckDB/Parquet parity (release blocker)
+        run: $(uv python find 3.12.12) scripts/featurelab377_dashboard_acceptance.py --out reports/v0377/physical_dashboard.json
+      - name: v0.37.7 four-size physical dashboard performance and RSS budget
+        run: $(uv python find 3.12.12) scripts/featurelab377_dashboard_performance.py --out reports/v0377/dashboard_perf.json
+      - name: v0.37.4 dashboard surfaces, multi-field chart and safe diagnostic regression
+        run: |
+          $(uv python find 3.12.12) -m pytest -q tests/test_featurelab374_dashboard_diagnostics.py
+          node --test frontend/native-bi/tests/featurelab374_dashboard_ui.test.mjs
+      - name: v0.37.3 evidence correctness, no-label guard and report SHA256
+        run: |
+          $(uv python find 3.12.12) -m pytest -q tests/test_featurelab373_evidence.py
+          node --test frontend/native-bi/tests/featurelab373_evidence_ui.test.mjs
+      - name: v0.37.3 real Parquet to numbers to evidence report gate
+        run: $(uv python find 3.12.12) scripts/featurelab373_evidence_acceptance.py --out reports/v0373/evidence_acceptance.json
+      - name: v0.37.2 dashboard query safety, filters and fixed-data parity
+        run: |
+          $(uv python find 3.12.12) -m pytest -q tests/test_featurelab372_dashboard_contract.py
+          $(uv python find 3.12.12) scripts/featurelab372_dashboard_acceptance.py --out reports/v0372/dashboard_physical.json
+      - name: v0.36.4 physical DuckDB/Parquet/chart/model verification (required)
+        run: $(uv python find 3.12.12) scripts/featurelab364_physical_acceptance.py
+      - name: Frozen synthetic dataset and cross-module regression gates
+        run: $(uv python find 3.12.12) scripts/featurelab362_acceptance.py --mode smoke
       - name: PIT join, advanced budgets and fail-closed gating
         run: $(uv python find 3.12.12) -m pytest -q tests/test_featurelab31_join_release.py tests/test_featurelab30_advanced.py
       - name: Production-scale native calculations and recovery
@@ -32,8 +91,37 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: timepilot-v031-python-evidence
+          name: timepilot-v0388-python-evidence
           path: reports/
+          if-no-files-found: warn
+
+  industrial-public-evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Use project Python 3.12.12 with real physical engines
+        run: |
+          uv python install 3.12.12
+          uv pip install --python "$(uv python find 3.12.12)" -r requirements.txt
+      - name: Industrial data contract, ranking, oracle and performance-budget regression
+        run: $(uv python find 3.12.12) -m pytest -q tests/test_featurelab370_industrial.py tests/test_featurelab370_oracle.py tests/test_featurelab370_performance_budget.py
+      - name: Download genuine pinned NAB raw telemetry and published anomaly windows
+        run: $(uv python find 3.12.12) scripts/featurelab370_fetch_public.py --out reports/v0370/public_nab_raw
+      - name: Execute actual cross-time, cross-device and DuckDB/Parquet numeric evidence
+        run: |
+          $(uv python find 3.12.12) scripts/featurelab370_real_data.py --source nab --input reports/v0370/public_nab_raw --out reports/v0370/real_nab --require-physical
+          $(uv python find 3.12.12) scripts/featurelab370_verify_oracle.py --raw-root reports/v0370/public_nab_raw --artifacts reports/v0370/real_nab
+          $(uv python find 3.12.12) scripts/featurelab370_performance.py --real-csv reports/v0370/real_nab/industrial_normalized.csv --rows 1000 --repeats 2 --require-physical --max-peak-rss-mib 3072 --max-model-seconds 120 --out reports/v0370/nab_performance.json
+      - name: Measure wall time and peak process memory at fixed scales
+        run: $(uv python find 3.12.12) scripts/featurelab370_performance.py --rows 10000 50000 200000 1000000 --repeats 2 --require-physical --max-peak-rss-mib 3072 --max-model-seconds 120 --out reports/v0370/synthetic_performance.json
+      - name: Preserve actual industrial QA evidence even on blocked or failed run
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: timepilot-v0370-industrial-evidence
+          path: reports/v0370/
           if-no-files-found: warn
 
   advanced-real-algorithms:
@@ -52,6 +140,7 @@ jobs:
         run: $(uv python find 3.12.12) -m pytest -q tests/test_featurelab30_optional_engines.py tests/test_featurelab30_advanced.py tests/test_featurelab31_join_release.py
 
   native-bi-pinned-build:
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
@@ -59,18 +148,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-          cache: npm
-          cache-dependency-path: frontend/native-bi/package-lock.json
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
-      - name: Enforce committed dependency lock
-        run: |
-          test -s frontend/native-bi/package-lock.json || {
-            echo 'BLOCKED: commit verified package-lock.json from an authorized build host' >&2
-            exit 2
-          }
-          cd frontend/native-bi && npm ci --no-audit --no-fund
+          python-version: '3.12.12'
+      - name: Require reviewed, complete cross-platform npm lock
+        run: python scripts/npm_lock_health.py
+      - name: Install exactly resolved frontend packages
+        working-directory: frontend/native-bi
+        run: npm ci --no-audit --no-fund
       - name: Run complete Node test suite
         working-directory: frontend/native-bi
         run: npm test
@@ -78,20 +163,21 @@ jobs:
         run: |
           python scripts/build_native_bi.py
           python scripts/verify_native_bi_release.py --require-build --require-source-current
-      - name: Produce installable offline distribution
-        run: python scripts/package_timepilot.py --with-native-bundle --output TimePilot_v0.31.0_FULL_OFFLINE.zip
-      - name: Upload complete distribution and bundle
+      - name: Produce independently verified native-BI bundle (Python wheels excluded)
+        run: python scripts/package_timepilot.py --with-native-bundle --output TimePilot_v0.38.8_NATIVE_BI_OFFLINE.zip
+      - name: Upload native-BI bundle and its source lock
         uses: actions/upload-artifact@v4
         with:
-          name: timepilot-v031-runtime
+          name: timepilot-v0388-native-bundle
           path: |
             src/timepilot/static/native-bi/
             frontend/native-bi/package-lock.json
-            TimePilot_v0.31.0_FULL_OFFLINE.zip
+            TimePilot_v0.38.8_NATIVE_BI_OFFLINE.zip
           if-no-files-found: error
 
   native-bi-real-browser:
-    needs: [python-full, advanced-real-algorithms, native-bi-pinned-build]
+    if: github.event_name == 'workflow_dispatch'
+    needs: [python-full, advanced-real-algorithms, native-bi-pinned-build, industrial-public-evidence]
     runs-on: ubuntu-latest
     timeout-minutes: 80
     steps:
@@ -104,7 +190,7 @@ jobs:
       - name: Restore exactly verified native bundle
         uses: actions/download-artifact@v4
         with:
-          name: timepilot-v031-runtime
+          name: timepilot-v0388-native-bundle
           path: .
       - name: Check runtime, bundle and virtual server
         run: |
@@ -116,14 +202,29 @@ jobs:
         run: |
           $(uv python find 3.12.12) scripts/accept_enterprise_browser.py --out reports/enterprise_browser_acceptance.json
           $(uv python find 3.12.12) scripts/launcher.py accept native
+      - name: v0.36.5 Google Chrome full user journey and SHA256 parity (release blocker)
+        env:
+          TIMEPILOT_QA_SCREENSHOTS: '1'
+        run: |
+          $(uv python find 3.12.12) scripts/featurelab365_chrome_journey.py --out reports/v0365/chrome_journey.json --timeout 180
+          $(uv python find 3.12.12) -c "import json; from pathlib import Path; p=Path('reports/v0365/chrome_journey.json'); a=json.loads(p.read_text()); assert a['status']=='passed' and a['browser_acceptance'] and len(a['steps'])>=13, a"
+      - name: v0.37.1 installed Google Chrome 30 same-document source/feature cycles (release blocker)
+        env:
+          TIMEPILOT_QA_SCREENSHOTS: '1'
+        run: |
+          $(uv python find 3.12.12) scripts/featurelab371_chrome_cycles.py --out reports/v0371/chrome_30_cycles.json --timeout 240
+          $(uv python find 3.12.12) -c "import json; from pathlib import Path; a=json.loads(Path('reports/v0371/chrome_30_cycles.json').read_text()); stages=[s for s in a['steps'] if s['stage']=='same_document_bi_feature_switch_cycles']; assert a['status']=='passed' and a['browser_acceptance'] and len(stages)==1 and stages[0]['status']=='passed' and stages[0]['completed_cycles']==30 and len(stages[0]['steps'])==60 and stages[0]['no_duplicate_custom_elements'] and stages[0]['checked_same_spa_document'], a"
       - name: Publish browser evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: timepilot-v031-browser-evidence
+          name: timepilot-v0388-browser-evidence
           path: reports/
           if-no-files-found: warn
 
 # Enterprise production release is a separate, explicitly gated local process.
 # A source CI pass, synthetic browser result or missing real plant measurements
 # never substitutes for same-source PIT/model/BI and third-party algorithm receipts.
+
+# A normal push runs source/data/algorithm checks. Native release is triggered
+# manually and blocks on any missing npm lock, WASM, DuckDB, or Chrome.

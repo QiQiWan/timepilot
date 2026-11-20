@@ -185,7 +185,10 @@
           "default": "time",
           "enum": [
             "time",
-            "grouped_time"
+            "grouped_time",
+            "kfold",
+            "stratified",
+            "group"
           ],
           "title": "Split Kind",
           "type": "string"
@@ -196,6 +199,11 @@
           },
           "title": "Group Field Ids",
           "type": "array"
+        },
+        "static_independence_confirmed": {
+          "default": false,
+          "title": "Static Independence Confirmed",
+          "type": "boolean"
         },
         "n_splits": {
           "default": 3,

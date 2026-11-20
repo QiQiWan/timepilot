@@ -16,8 +16,11 @@ import {releasePerspectiveResources} from './session-lifecycle.mjs';
 import {compileAgentViewerState,ensureSameTable,mergeAgentPanelConfig} from './workspace-bridge.mjs';
 import {observeViewer} from './viewer-events.mjs';
 import {createSeriesPreserver} from './series-preservation.mjs';
+import {withTrace, newTrace, explainConnectionFailure} from './connection-diagnostics.mjs';
+import {predictionIdFromCell} from './prediction-selection.mjs';
 
 let initialized, worker, viewer, table, socket, localTable = false, resizeObserver;
+let releaseChain = Promise.resolve(); // old WS teardown must finish before the next mount opens
 let changeListener=null,stopObserving=null,seriesKeeper=null;
 
 // A WebSocket that never answers open_table(), or WASM that never initializes,
@@ -71,19 +74,15 @@ async function attachViewer(container, client, tableRef, onCell = null) {
   await seriesKeeper.initialize();
   if (onCell) elem.addEventListener('perspective-click', async (event) => {
     const detail = event.detail || {};
-    const row = detail.row || {};
-    const raw = row.__tp_rowid;
-    const rowId = Array.isArray(raw) ? raw[0] : raw;
-    if (rowId == null || rowId === '') return;
-    if (!Number.isSafeInteger(Number(rowId)) || Number(rowId) < 0) return;
-    const col = (detail.column_names || []).find(name => name !== '__tp_rowid' &&
-      Object.prototype.hasOwnProperty.call(row, name));
-    if (!col) return;
     try {
       const workspace = await elem.saveWorkspace();
       const panel = workspace.panels?.[detail.panel] || Object.values(workspace.panels || {})[0];
-      if ((panel?.group_by || []).length || (panel?.split_by || []).length) return;
-      onCell({row_id: Number(rowId), column: col, value: row[col]});
+      const rowId=predictionIdFromCell(detail,panel);
+      if (rowId === null) return;
+      const row=detail.row || {};
+      const col=(detail.column_names || []).find(name => name !== '__tp_rowid' &&
+        name !== 'prediction_row_id' && Object.prototype.hasOwnProperty.call(row,name));
+      onCell({row_id:rowId,column:col || null,value:col ? row[col] : null});
     } catch { /* a chart or derived aggregation is not an editable cell */ }
   });
   return viewer;
@@ -103,8 +102,15 @@ export async function mountPerspective(container, arrowBuffer) {
 export async function mountPerspectiveRemote(container, url, options = {}) {
   await disposePerspective();
   await initialize();
-  // Official Perspective Python DuckDB Virtual Server protocol over WebSocket.
-  socket = await bounded(perspective.websocket(url), 'Perspective WebSocket 握手', 10000);
+  // One trace ID maps Chrome's generic websocket error to the real server
+  // rejection stage without exposing project data through the diagnostics API.
+  const trace=newTrace();
+  const tracedUrl=withTrace(url,trace);
+  try {
+    socket = await bounded(perspective.websocket(tracedUrl), 'Perspective WebSocket 握手', 10000);
+  } catch (error) {
+    throw await explainConnectionFailure(trace,'WebSocket 握手',error);
+  }
   try {
     // Perspective's DuckDB Virtual Server advertises catalog-qualified table IDs;
     // the local streaming Server keeps unqualified names. Discover the real ID
@@ -116,7 +122,7 @@ export async function mountPerspectiveRemote(container, url, options = {}) {
       '远程 Perspective 工作区就绪', 15000);
   } catch (error) {
     await disposePerspective(); // Also release sockets on viewer.restore() failures.
-    throw error;
+    throw await explainConnectionFailure(trace,'远程表发现或 Viewer 渲染',error);
   }
 }
 
@@ -136,15 +142,36 @@ export async function mountFeatureComparison(container, url, previousWorkspace =
     const output=await openHostedTable(socket,'timepilot_feature_artifact',bounded);
     const resultName=await output.table.get_name();
     const schema=await output.table.schema();
-    const existing=await bounded(viewer.saveWorkspace(),'检查当前图表布局',6000);
     const config=gridConfig(schema,resultName);
     await bounded(viewer.restore(config,{panel:'tp-feature-result'}),'显示特征结果面板',12000);
-    return {source_table:await table.get_name(),result_table:resultName,
-      panel_count:Object.keys((await viewer.saveWorkspace()).panels||{}).length};
+    const sourceName=await table.get_name();
+    const actual=await bounded(viewer.saveWorkspace(),'核对双表绑定',7000);
+    const boundTables=Object.values(actual.panels||{}).map(panel=>panel.table).filter(Boolean);
+    if(!boundTables.includes(sourceName)||!boundTables.includes(resultName)||
+       !Object.keys(schema).some(name=>name!=='__tp_rowid'))
+      throw new Error('源表与正式特征结果未同时绑定到两个有效面板');
+    return {source_table:sourceName,result_table:resultName,
+      feature_fields:Object.keys(schema).filter(name=>name!=='__tp_rowid'),
+      panel_count:boundTables.length};
   } catch(error) {
     // Keep the original source Viewer available on any derived-panel failure.
     throw new Error('原始数据已加载，附加特征面板失败：'+error.message);
   }
+}
+
+/** Keep the original chart/view while displaying the traced prediction row.
+ * Does not modify the signed dataset or any existing user's chart filter.
+ */
+export async function focusPredictionRow(rowId) {
+  if (!viewer || !table || !Number.isSafeInteger(rowId) || rowId<0 || rowId>=1000000) return false;
+  const schema=await bounded(table.schema(),'Prediction schema',8000);
+  if (!Object.prototype.hasOwnProperty.call(schema,'prediction_row_id')) return false;
+  const tableName=await bounded(table.get_name(),'Prediction table name',8000);
+  const config=gridConfig(schema,tableName);
+  config.filter=[['prediction_row_id','==',rowId]];
+  await bounded(viewer.restore(config,{panel:'tp-prediction-detail'}),
+    'Prediction detail panel',10000);
+  return true;
 }
 
 export async function getActiveTableName() {
@@ -279,5 +306,9 @@ export async function disposePerspective() {
   table = null;
   socket = null;
   localTable = false;
-  await releasePerspectiveResources(previous, bounded);
+  // Two routes can dispose concurrently while navigation is in flight.
+  // Serialize transport teardown so a new mount awaits the previous socket
+  // close instead of filling TIMEPILOT_BI_WS_MAX with orphaned sessions.
+  releaseChain = releaseChain.catch(() => {}).then(() => releasePerspectiveResources(previous, bounded));
+  await releaseChain;
 }

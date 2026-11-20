@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import importlib
 import importlib.metadata
+import importlib.util
 import json
 import sys
 from pathlib import Path
@@ -61,6 +62,26 @@ def inspect(*, require_runtime: bool = False, integration: bool = False,
                 frontend_version = json.loads(package_file.read_text(encoding='utf-8'))['version']
                 if frontend_version != version:
                     issues.append(f'MIXED VERSION: frontend package={frontend_version}, Python={version}')
+                npm_lock = package_file.with_name('package-lock.json')
+                if npm_lock.is_file():
+                    # Keep importlib bound at module scope. Importing importlib.util
+                    # inside inspect() shadows importlib throughout the function
+                    # and breaks normal --require-runtime startup on macOS.
+                    spec=importlib.util.spec_from_file_location('_tp_bi_setup',ROOT/'scripts/setup_native_bi.py')
+                    module=importlib.util.module_from_spec(spec)
+                    spec.loader.exec_module(module)
+                    if not module.lock_matches_package():
+                        signed_lock = 'frontend/native-bi/package-lock.json' in (
+                            manifest.get('files', {}) if isinstance(manifest, dict) else {})
+                        diagnosis = ('MISMATCHED NPM LOCK: missing or inconsistent npm platform '
+                                     'packages; run `bash TIMEPILOT.sh bi-setup --bootstrap-lock`')
+                        if signed_lock and (strict_source or source_only or strict_extra):
+                            issues.append(diagnosis)
+                        else:
+                            # Source-only distributions generate their npm lock
+                            # at build time. Allow the startup repair stage to
+                            # repair an incomplete *unsigned* local lock.
+                            warnings.append('RELEASE-ONLY: ' + diagnosis)
             elif strict_source or source_only:
                 issues.append('MISSING FRONTEND SOURCE: frontend/native-bi/package.json')
             else:
@@ -140,6 +161,13 @@ def main() -> int:
         for error in report['issues']:
             print(' [ERROR] ' + error)
         if report['issues']:
+            if any((kind + ': ' + name) in x
+                       for x in report['issues']
+                       for kind in ('CHANGED OR DAMAGED FILE', 'MISSING FILE')
+                       for name in ('.github/workflows/ci.yml', '.github/workflows/offline-release.yml')):
+                print('[FIX] Run `bash TIMEPILOT.sh source-repair --dry-run`, then '
+                      '`bash TIMEPILOT.sh source-repair` to restore the SHA256-checked '
+                      'hidden CI workflows; changed files are backed up.')
             print('Repair the source files if necessary; no Python environment is created or changed.')
     return 0 if report['ok'] else 2
 

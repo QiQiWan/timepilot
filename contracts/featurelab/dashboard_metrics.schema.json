@@ -1,0 +1,149 @@
+{
+  "$defs": {
+    "DashboardMetricScope": {
+      "additionalProperties": false,
+      "properties": {
+        "field_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Field Ids",
+          "type": "array"
+        },
+        "rows": {
+          "minimum": 0,
+          "title": "Rows",
+          "type": "integer"
+        },
+        "denominator_cells": {
+          "minimum": 0,
+          "title": "Denominator Cells",
+          "type": "integer"
+        },
+        "population": {
+          "const": "filtered_version_rows",
+          "default": "filtered_version_rows",
+          "title": "Population",
+          "type": "string"
+        },
+        "missing_policy": {
+          "const": "sql_null_plus_non_finite_plus_conversion_failed",
+          "default": "sql_null_plus_non_finite_plus_conversion_failed",
+          "title": "Missing Policy",
+          "type": "string"
+        },
+        "field_limit": {
+          "minimum": 1,
+          "title": "Field Limit",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "field_ids",
+        "rows",
+        "denominator_cells",
+        "field_limit"
+      ],
+      "title": "DashboardMetricScope",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "records": {
+      "minimum": 0,
+      "title": "Records",
+      "type": "integer"
+    },
+    "source_records": {
+      "minimum": 0,
+      "title": "Source Records",
+      "type": "integer"
+    },
+    "columns": {
+      "minimum": 0,
+      "title": "Columns",
+      "type": "integer"
+    },
+    "numeric_fields": {
+      "minimum": 0,
+      "title": "Numeric Fields",
+      "type": "integer"
+    },
+    "selected_fields": {
+      "minimum": 0,
+      "title": "Selected Fields",
+      "type": "integer"
+    },
+    "missing_cells": {
+      "minimum": 0,
+      "title": "Missing Cells",
+      "type": "integer"
+    },
+    "invalid_numeric_cells": {
+      "minimum": 0,
+      "title": "Invalid Numeric Cells",
+      "type": "integer"
+    },
+    "non_finite_numeric_cells": {
+      "minimum": 0,
+      "title": "Non Finite Numeric Cells",
+      "type": "integer"
+    },
+    "conversion_failed_cells": {
+      "minimum": 0,
+      "title": "Conversion Failed Cells",
+      "type": "integer"
+    },
+    "missing_percent": {
+      "anyOf": [
+        {
+          "maximum": 100,
+          "minimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Missing Percent"
+    },
+    "coverage_percent": {
+      "anyOf": [
+        {
+          "maximum": 100,
+          "minimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Coverage Percent"
+    },
+    "confirmed_time": {
+      "title": "Confirmed Time",
+      "type": "boolean"
+    },
+    "metric_scope": {
+      "$ref": "#/$defs/DashboardMetricScope"
+    }
+  },
+  "required": [
+    "records",
+    "source_records",
+    "columns",
+    "numeric_fields",
+    "selected_fields",
+    "missing_cells",
+    "invalid_numeric_cells",
+    "non_finite_numeric_cells",
+    "conversion_failed_cells",
+    "confirmed_time",
+    "metric_scope"
+  ],
+  "title": "DashboardMetrics",
+  "type": "object"
+}

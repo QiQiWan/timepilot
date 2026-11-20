@@ -122,6 +122,20 @@ class EnterpriseSecurity:
         except OSError:
             pass
 
+    def require_single_tenant_global_diagnostics(self, principal: Principal) -> None:
+        """Global logs/worker counters span tenants; no tenant-scoped view exists.
+
+        In a multi-tenant deployment a tenant admin must not enumerate other
+        tenants' activity (even aggregate counts/diagnostic text). Host-level
+        operators may inspect the on-disk logs and worker-status CLI instead.
+        """
+        if principal.tenant_role != 'tenant_admin':
+            raise SecurityError('仅租户管理员可以查看系统诊断')
+        with self._db() as db:
+            count = db.execute('SELECT COUNT(*) FROM tenants').fetchone()[0]
+        if count != 1:
+            raise SecurityError('多租户部署不开放跨租户全局诊断；请由主机运维人员查看')
+
     def audit(self, event: str, principal: Principal | None = None, *, tenant_id: str | None = None,
               user_id: str | None = None, resource: str = '', detail: str = ''):
         # Store no passwords, session tokens, CSRF values or user-supplied request bodies.
@@ -487,6 +501,8 @@ class EnterpriseGuard:
             match=re.fullmatch(
                 r'/api/v1/native-bi/(assets|linked)/([0-9a-fA-F-]{36}|si_[a-f0-9]{32})/versions/([^/]+)/ws',
                 path)
+            predicted=re.fullmatch(
+                r'/api/v1/native-bi/model-predictions/([0-9a-fA-F-]{36})/([0-9a-fA-F-]{36})/([0-9a-fA-F-]{36})/ws',path)
             origin=urlsplit(headers.get('origin',''))
             query=parse_qs(scope.get('query_string',b'').decode('utf-8',errors='replace'))
             project_ids=query.get('project_id',[])
@@ -500,6 +516,13 @@ class EnterpriseGuard:
                     permitted=True
                 except (SecurityError,ValueError):
                     pass
+            if (predicted and principal and len(project_ids)==1 and
+                    predicted.group(1)==project_ids[0] and
+                    origin.scheme=='https' and origin.netloc==headers.get('host')):
+                try:
+                    self.security.allowed_project(principal,project_ids[0],required='viewer')
+                    permitted=True
+                except (SecurityError,ValueError):pass
             if not permitted:
                 await send({'type':'websocket.close','code':1008,'reason':'Authorized project BI session required'})
                 return
@@ -543,6 +566,12 @@ class EnterpriseGuard:
                     raise SecurityError('项目路由无效',404)
             elif path.startswith('/api/v1/auth/') or path.startswith('/api/v1/identity/'):
                 pass
+            elif path in {'/api/v1/system/logs','/api/v1/system/logs/download','/api/v1/system/logs/summary', '/api/v1/system/workers'}:
+                if method not in {'GET', 'HEAD'}:
+                    raise SecurityError('系统诊断接口只允许读取')
+                self.security.require_single_tenant_global_diagnostics(principal)
+            elif path.startswith('/api/v1/system/logs') or path.startswith('/api/v1/system/workers'):
+                raise SecurityError('日志资源不存在', 404)
             elif path in {'/api/v1/ready','/api/v1/plugins'}:
                 if method not in {'GET','HEAD'}:
                     raise SecurityError('此接口只允许读取')

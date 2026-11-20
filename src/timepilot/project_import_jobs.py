@@ -20,6 +20,7 @@ from uuid import UUID, uuid4
 
 from timepilot.smart_import import MAX_UPLOAD_BYTES, MAX_MEMBER_BYTES, SUPPORTED, SmartImportError
 from timepilot.import_checkpoints import WorksheetCheckpoints
+from timepilot.projects import now as project_now
 
 
 class ProjectLeaseExpired(RuntimeError):
@@ -212,19 +213,45 @@ class ProjectImportJobs:
             conn.close()
 
     def _finish(self, jid, owner, *, success, error=None):
+        # A stale worker can neither succeed nor mark its old attempt failed.
         with self.catalog._db() as db:
-            db.execute('''UPDATE project_import_jobs SET status=?,finished_at=?,
+            updated=db.execute('''UPDATE project_import_jobs SET status=?,finished_at=?,
                 error=?,lease_owner=NULL,lease_until=NULL,import_id=?,phase=?
-                WHERE job_id=? AND lease_owner=? AND status='running' ''',
+                WHERE job_id=? AND lease_owner=? AND status='running' AND lease_until>?''',
                 ('succeeded' if success else 'failed',time.time(),str(error)[:600] if error else None,
-                 jid if success else None,'complete' if success else 'failed',jid,owner))
+                 jid if success else None,'complete' if success else 'failed',jid,owner,time.time()))
+        return updated.rowcount==1
+
+    def _commit_success(self, jid, owner, pid):
+        '''Atomically associate a verified manifest and mark this owner successful.'''
+        source=self.catalog.imports.manifest(jid)
+        if source['import_id']!=jid:
+            raise SmartImportError('上传扫描结果与任务编号不匹配')
+        with self.catalog._lock,self.catalog._db() as db:
+            db.execute('BEGIN IMMEDIATE')
+            timestamp=time.time()
+            live=db.execute('''SELECT 1 FROM project_import_jobs WHERE job_id=?
+                AND project_id=? AND lease_owner=? AND status='running' AND lease_until>?''',
+                (jid,pid,owner,timestamp)).fetchone()
+            project=db.execute('SELECT status FROM projects WHERE id=?',(pid,)).fetchone()
+            if live is None or project is None or project['status']!='active':
+                raise ProjectLeaseExpired('上传任务租约已失效或项目不可写，禁止关联结果')
+            db.execute('INSERT OR IGNORE INTO project_imports VALUES (?,?,?)',
+                       (pid,source['import_id'],project_now()))
+            updated=db.execute('''UPDATE project_import_jobs SET status='succeeded',
+                finished_at=?,error=NULL,lease_owner=NULL,lease_until=NULL,
+                import_id=?,phase='complete' WHERE job_id=? AND project_id=?
+                AND lease_owner=? AND status='running' AND lease_until>?''',
+                (timestamp,jid,jid,pid,owner,timestamp))
+            if updated.rowcount!=1:
+                raise ProjectLeaseExpired('上传任务提交期间租约失效，拒绝报告成功')
 
     def _heartbeat(self, jid, owner):
         timestamp=time.time()
         with self.catalog._db() as db:
             updated=db.execute('''UPDATE project_import_jobs SET heartbeat_at=?,lease_until=?
-                WHERE job_id=? AND lease_owner=? AND status='running' ''',
-                (timestamp,timestamp+self.lease_seconds,jid,owner))
+                WHERE job_id=? AND lease_owner=? AND status='running' AND lease_until>?''',
+                (timestamp,timestamp+self.lease_seconds,jid,owner,timestamp))
         return updated.rowcount == 1
 
     def _assert_owned(self, jid, owner):
@@ -247,12 +274,14 @@ class ProjectImportJobs:
         done = 1 if event=='sheet_completed' else 0
         reused = 1 if done and info.get('reused') else 0
         with self.catalog._db() as db:
-            db.execute('''UPDATE project_import_jobs SET phase=?,current_file=COALESCE(?,current_file),
+            updated=db.execute('''UPDATE project_import_jobs SET phase=?,current_file=COALESCE(?,current_file),
                 current_sheet=?,total_sheets=total_sheets+?,completed_sheets=completed_sheets+?,
                 reused_sheets=reused_sheets+?,heartbeat_at=?,lease_until=?
-                WHERE job_id=? AND lease_owner=? AND status='running' ''',
+                WHERE job_id=? AND lease_owner=? AND status='running' AND lease_until>?''',
                 (phase,info.get('filename') or info.get('file_id'),info.get('sheet'),
-                 total,done,reused,now,now+self.lease_seconds,jid,owner))
+                 total,done,reused,now,now+self.lease_seconds,jid,owner,now))
+        if updated.rowcount!=1:
+            raise ProjectLeaseExpired('上传进度更新时租约已失效')
 
     def work_once(self):
         job = self._claim()
@@ -310,12 +339,16 @@ class ProjectImportJobs:
             if manifest['import_id'] != jid:
                 raise SmartImportError('任务与数据版本编号不一致')
             self._assert_owned(jid,owner)
-            self.catalog.attach_import(job['project_id'], jid)
-            self._finish(jid,owner,success=True)
-            self.cleanup_finished()
-            return {'job_id': jid,'status':'succeeded','import_id':jid}
+            self._commit_success(jid,owner,job['project_id'])
+            try:
+                self.cleanup_finished()
+            except OSError:
+                import logging
+                logging.getLogger(__name__).exception('Committed upload staging cleanup deferred')
+            return {'job_id':jid,'status':'succeeded','import_id':jid}
         except Exception as exc:
-            self._finish(jid,owner,success=False,error=exc)
+            if not self._finish(jid,owner,success=False,error=exc):
+                return {'job_id':jid,'status':'lease_lost'}
             return {'job_id':jid,'status':'failed','error':str(exc)[:600]}
         finally:
             shutdown.set()

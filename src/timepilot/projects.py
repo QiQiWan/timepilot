@@ -456,8 +456,16 @@ class ProjectCatalog:
         self.writable(pid)
         self.require_import(pid,import_id)
         with self._lock,self._db() as db:
-            db.execute('INSERT OR IGNORE INTO project_generic_assets VALUES (?,?,?,?,?,?)',
-                (self._id(pid),import_id,candidate_id,version_id,native_asset_id,now()))
+            db.execute('BEGIN IMMEDIATE')
+            existing=db.execute('''SELECT native_asset_id FROM project_generic_assets
+                WHERE project_id=? AND import_id=? AND candidate_id=? AND version_id=?''',
+                (self._id(pid),import_id,candidate_id,version_id)).fetchone()
+            if existing and existing['native_asset_id']!=native_asset_id:
+                from timepilot.smart_import import SmartImportError
+                raise SmartImportError('同一项目来源版本已关联另一原生资产；禁止静默覆盖或忽略冲突')
+            if existing is None:
+                db.execute('INSERT INTO project_generic_assets VALUES (?,?,?,?,?,?)',
+                    (self._id(pid),import_id,candidate_id,version_id,native_asset_id,now()))
         return self.generic_for(pid)
 
     def require_generic(self,pid,native_asset_id):

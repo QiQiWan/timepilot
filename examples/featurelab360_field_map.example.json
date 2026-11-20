@@ -1,0 +1,15 @@
+{
+  "provenance": "填写业务部门确认的数据来源、采集范围及负责人；这是声明，不能代替独立证明",
+  "task": "binary_classification",
+  "timezone": "Asia/Shanghai",
+  "models": "linear",
+  "event_time": "event_timestamp",
+  "available_at": "measurement_available_at",
+  "prediction_time": "prediction_timestamp",
+  "label_available": "label_available_at",
+  "target": "quality_label",
+  "device": "equipment_id",
+  "regime": "operating_regime",
+  "measure_a": "sensor_value_a",
+  "measure_b": "sensor_value_b"
+}

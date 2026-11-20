@@ -1,0 +1,24 @@
+.tp-da-workbench{display:grid;gap:16px;padding:6px 0 34px;max-width:1250px}
+.tp-da-context,.tp-da-status,.tp-da-viz-heading,.tp-da-recommendation,.tp-da-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.tp-da-context{justify-content:flex-start;padding:14px 17px;background:white;border:1px solid #dbe4f0;border-radius:12px}
+.tp-da-context label,.tp-da-viz-heading label{display:flex;align-items:center;gap:6px;font-size:13px;color:#54657b}
+.tp-da-context select,.tp-da-viz-heading select{border:1px solid #d4ddeb;background:#fff;padding:7px 10px;border-radius:7px;max-width:320px}
+.tp-da-context>a{margin-left:auto}
+.tp-da-status{padding:10px 16px;background:#f0f5fb;border-radius:9px;font-size:13px;justify-content:space-between;color:#4b5e78}
+.tp-da-status strong{color:#152b45}
+.tp-da-summary,.tp-da-viz,.tp-da-next,.tp-da-pending{padding:18px 20px;border:1px solid #dbe4f0;background:#fff;border-radius:13px}
+.tp-da-summary h2,.tp-da-viz h2,.tp-da-next h2{font-size:17px;margin:0 0 15px;color:#172d47}
+.tp-da-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.tp-da-metrics>div{padding:13px 15px;background:#f5f8fc;border-radius:8px;display:grid;gap:5px}
+.tp-da-metrics small{color:#65768d}.tp-da-metrics strong{font-size:23px;color:#182d46}
+.tp-da-findings{margin-top:12px;color:#506077;font-size:14px}
+.tp-da-findings p{margin:6px 0}
+.tp-da-viz-heading h2{margin:0 auto 0 0}
+.tp-da-chart-host{min-height:250px;margin-top:15px;display:grid;align-items:center}
+.tp-da-chart{display:block;width:100%;max-height:350px;font-size:11px;fill:#5c7089}
+.tp-da-recommendation{justify-content:space-between;border-top:1px solid #edf0f6;padding:12px 0}
+.tp-da-recommendation strong{font-size:14px;color:#1b3651}.tp-da-recommendation p{font-size:13px;color:#617087;margin:5px 0}
+.tp-da-actions{justify-content:flex-end;margin-top:14px}
+@media(max-width:760px){.tp-da-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.tp-da-context>a{margin-left:0}.tp-da-viz-heading h2{width:100%}}
+
+.tp-da-dashboard{min-width:0}

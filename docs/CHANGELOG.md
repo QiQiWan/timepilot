@@ -1,3 +1,226 @@
+## 0.39.5 (2026-11-20)
+
+- 模型结果工作台贯通逐折数值、验证集回归残差、分类混淆矩阵、末折置换特征贡献、月度/设备验证切片、源 BI 导航、可核验的任务修订与 Markdown 报告。
+- 聚合 BI 诊断仅显示 15 行以上切片；来源失效后清除指标和下载链接，运行失败显示有界错误码及原因。
+- 真实同源、同折、单线程且预算上限统一的候选对照；保留原执行器证据不足的明确说明。
+- 源码签名/版本/验收门禁更新，保持 Mac 原生、物理和离线发布阻断。
+
+## 0.39.4 (2026-11-20)
+
+- 按每个 X 独立发布时间对齐预测决策时点，训练 Y 按成熟时刻过滤；含时间偏移规范化、实际/声明延迟证据分级及 SHA256 账本。
+- 增加滚动时间多折、跨月前向留出和跨设备 + 时间留出，对各折索引和边界做断言与哈希固化。
+
+## 0.38.6 (2026-11-18)
+
+- 原生 BI 资产写入前持久记录来源意图，在真实 Parquet 原子写入与 fsync 后再登记物理 SHA256、字节数和行数；元数据异常时保留已完成文件证据。
+- 按项目/导入区域/版本清点未登记快照，未知、遗留或畸形标记继续阻断自动重试；已明确归属其他区域的孤儿文件独立计数。
+- 提供只读本地审计和需要停机、有效 Worker 租约检查、实际 SHA256 与案例号的人工隔离归档，不删除原始快照。
+- 增加真实 DuckDB/PyArrow Parquet 的写入前后子进程异常退出验收入口；现有源代码回归无法取代目标环境真实物理验证。
+- 更新 v0.38.6 源码/物理/浏览器/离线发布门禁、Node 24 CI 和在线构建机 npm 锁引导流程。
+
+## 0.38.5 (2026-11-18)
+
+- 同步数据发布进入与异步/批量发布共用的持久 SQLite 任务；并发时返回任务回执，避免无登记的直接物理写入。
+- 增加阶段回执 hash chain（SQLite 同事务写前、写后事件），保存来源版本、CSV SHA256、原生资产 ID、处理结果，不保存源数据行。
+- 检查任务领取时的来源版本与提交时指纹一致，禁止用队列中的旧任务发布更改后的数据。
+- 过期租约和不确定原生 BI 写入保持待人工对账，并将审批结果加入阶段回执。
+- 数据管理页新增按需查看阶段记录的入口，附带项目隔离权限和不可修改审计测试。
+- 发布正式门禁增加 v0.38.5 源码回归；真实物理数据库、浏览器和完整离线构建仍需目标环境证据。
+
+## 0.37.9 (2026-11-17)
+
+- 灾备：增加安全恢复到全新目录、哈希验证、SQLite integrity_check、路径安全与覆盖保护。
+- 交付：新增无网络依赖安装的 Dockerfile.offline；明确 source/native-only/complete-offline 语义；可验证离线 wheelhouse，修正旧打包脚本版本；默认启动不再隐式 npm bootstrap。
+- 前端：筛选刷新使旧图表请求失去并发配额，新统计立即发起，晚到值不得覆盖。
+- 质量：恢复异常/交付阻断/并发竞态测试，独立 source/offline/physical/browser 门禁。
+
+## v0.37.8 (2026-11-17)
+
+- 统一数据一览 `DashboardMetrics` 数值/范围契约，补上缺失/非有限/转换失败计数与分母，前端不再误用不存在的统计字段。
+- 源文件 SHA256 成功校验使用 30 秒进程内缓存，inode/ctime/mtime/长度/预期 SHA 变化后立即重新检查。
+- 图表请求输出可脱敏的性能摘要，新增只允许租户管理员访问的 `/api/v1/system/logs/summary`。
+- `/ready` 增加数据库、磁盘和 Worker 检查，拒绝把 API-only 模式推断为完整业务已就绪。
+- 增加 12 行和 506 行真实 Parquet 物理验收样例、完整原生 BI Docker 多阶段构建和发布阻断器；目前缺 npm 锁和离线 JS/WASM，保持候选状态。
+
+### v0.37.7 Dashboard, query correctness and diagnostics (2026-11-16)
+
+- v0.37.5: canonical safe category SQL shared by legacy GET and current POST; chart capabilities; per-card request tokens, two-request limit, stale response rejection; accurate chart-incident counts.
+- v0.37.6: task-specific overview/quality/statistics DOM and lazy feature UI; actual Tukey whiskers/outliers; invalid numeric counters; pairwise Spearman with budget and schema-role filtering.
+- v0.37.7: version/source/filter-scoped bounded TTL summary cache; diagnostic ZIP; fail-closed physical Parquet SQL parity and performance gates in CI. Browser physical verification remains external to this source package.
+
+### v0.37.4 Mac startup hotfix (2026-11-16)
+
+- Detect incomplete Rollup/Esbuild cross-platform optional npm lock entries.
+- With explicit `--bootstrap-lock`, generate in an isolated empty directory,
+  verify the candidate using real `npm ci`, and atomically publish it after
+  backing up an existing local lock outside the source tree.
+- Do not change a signed package-lock or any existing verified Perspective
+  JS/WASM assets when a registry install fails.
+- Distinguish npm EUSAGE lock errors from network and permission failures;
+  allow one safe recovery attempt, without unbounded retries.
+- Startup preflight treats unsigned generated lock as a repairable build input;
+  hidden `.github/workflows/ci.yml` still requires signed source repair.
+
+## v0.37.3 — 证据驱动自然语言、特征对照与报告（2026-11-16）
+
+- 新增只读统一证据引擎：数据版本、筛选范围、SHA256、数值路径、单位、证据 ID 和限制说明；无证据或数值冲突时不生成分析结论。
+- 数据一览和特征图表统一展示服务器的数值证据；删除前端自行推断最大波动等重复启发式解释；无模型 API 时正常使用。
+- 对于已确认标签和同源、同折指标，输出全部特征与筛选特征相对原始字段的逐折改善及负收益；明确不能据此声称最终测试或生产收益。
+- 新增数据一览 Markdown 证据报告，浏览器 WebCrypto SHA256 校验；正式特征分析报告新增证据经过校验的三方案评价折数值。
+- 固定合成样本、前端渲染与篡改阻断、统计不一致及无标签反例回归；真实 DuckDB/Parquet 验收独立失败即阻断。
+
+## v0.37.2 — 数据一览、跨字段分析与版本联动
+
+- 新增参数化 DuckDB 多维数据概览：分位数、缺失率、Pearson 相关性、直方图、箱线图、类别统计、散点与确认时间趋势。
+- 新增工作台仪表盘、可配置图表、最多 5 项数据筛选、刷新状态恢复及版本切换来源防串线。
+- 新增固定合成 CSV 与真实 DuckDB/Parquet 独立 SQL 对账，缺少物理依赖即阻断正式验收；前端 Node 回归覆盖图表配置与筛选同步。
+- 保留原有单字段分析、特征工程、正式 BI 及模型评价，报告不虚构算法收益。
+
+## v0.37.1 — Perspective 生命周期、正式特征 BI 与 WebSocket 修复
+
+- 统一原生 Perspective 的 ESM 身份及 SHA256 变更检测，防止重复定义 `regular-layout`。
+- 增加仅本地可用的 WebSocket 阶段/关闭码追踪；修复 API 前缀重复、正式特征的固定产物链接和两张原生表绑定。
+- 改进基本 BI 字段类型、负值汇总、计数回退，集成同页 30 次 Chrome 往返的独立发布门禁。
+- 浏览器实测与离线回归分开记录，缺依赖时不宣称验收通过。
+
+# v0.37.0 — 工业真实数据与性能验证（2026-11-16）
+
+- v0.37.0 最终收束：修复工业评分并列预测分数导致的 AP 顺序敏感问题；新增来自官方 NAB 九个原始文件的独立来源/统计/分折性能基准与 SHA256 关联；增加回顾性跨设备试验时间先后说明和性能 RSS/模型耗时硬门禁；Python 全量回归、工业测试与真实物理门禁分开留证。
+
+- 新增 NAB 官方 8 个 EC2 实例真实时序及标签文件的固定 Git blob 校验与下载工具；MetroPT-3 单设备空压机适配、企业时点明确的字段契约。
+- 固定设备内过去窗口、标签收到时点、训练/验证/测试分离与未见设备外推基线；公开事后标注只运行无监督训练，阻断错误的在线收益宣称。
+- 新增真实 DuckDB、PyArrow/Pandas Parquet 复核和 1/5/20/100 万行可重复 wall-clock / RSS 基准；CI 可在有网络与依赖环境执行真实数据门禁。
+- 默认继续保留 v0.36.5 浏览器、BI 和项目工作流；详细边界见 `docs/FEATURELAB_V0370_INDUSTRIAL_ACCEPTANCE.md`。
+
+## v0.36.5 — Chrome 交互、任务刷新恢复与真实数据闭环验收
+
+- 新增 `scripts/featurelab365_chrome_journey.py`：固定 QA 数据、真实 CSV 上传、任务跨刷新恢复、Parquet / CSV 独立数值核对、自动画像和特征确认、原生 BI WebSocket、不可变报告下载校验、失败状态记录。严格禁止模拟浏览器和跳过物理门禁。
+- 修复导入发布页刷新后后台任务轮询停止；保留错误信息于上传表单；自动画像不再受特征预览状态抑制；完善缺失资产告警与可恢复入口。
+- 新增前端与 Python 专项回归，CI 以真实 Chrome 用户旅程结果为发布阻断条件；无法运行时明确记为 blocked。
+- 源码包包含验收脚本，不预装 Chrome，不声称尚未运行的 Perspective/Parquet 浏览器门禁已通过。
+
+## v0.36.4 - 2026-11-16
+
+- Add real frozen-source DuckDB/Arrow Parquet/chart/rolling-feature/model evaluator. Missing physical packages are BLOCKED with machine-readable reason; no production claim.
+- Replace multi-layer nested analysis navigation with a single five-step task switcher and a compact extra-tools menu, preserve current routes.
+- Add plain-language evidence-led chart templates and a local MathJax operator help library, maintaining optional technical provenance.
+- Rename feature delivery section and clarify manual review, materialization, BI use and report saving.
+- Add bounded, rotating, redacted JSONL request/worker logs, with admin-only enterprise read, UI filters and exports.
+
+## v0.36.3 - 2026-11-16
+
+- Align current-version regression tests with the supported adaptive planner and generator versions while retaining historical source behaviors.
+- Fix hidden-file restore parity between authoritative CI workflow and visible bootstrap recovery copy, regenerate SHA256 source manifest.
+- Fix release metadata, README and CI artifact names; add an online CI lock-bootstrap path and verified npm ci build.
+- This source-only archive does not include precompiled Perspective or a committed npm lock. Online CI must generate and publish the reviewed lock/build artifact; until then native BI remains blocked.
+
+## v0.36.2 - 2026-11-14
+
+- Frozen, independent synthetic QA goldens: 8 fixed CSV SHA256, exact quality/error counts, six-device regime transitions, late maintenance, complete time buckets, and supervised model metrics.
+- Add real HTTP/SQLite import-publication-workspace state tests for unlabeled and static data, source invalidation, cross-project isolation and refresh/read idempotence. Physical NativeBI remains a separate gate.
+- Add regression tests for actual training-fold evaluations on three frozen datasets. Reject restricted fields entering supervised raw features or output lists.
+- Add one-command QA audit with pass/fail/blocked classification, separate physical gate, no installs, and no business CSV in log archives. CI executes the same frozen smoke gate on each push.
+- A complete production acceptance still requires real DuckDB/Parquet, native Perspective and independent business data.
+
+## v0.36.1 — 数据驱动功能验收（2026-11-14）
+
+- 添加 8 类固定合成 QA CSV、SHA256 和可核验的预期异常；单独区分功能与生产验收。
+- 增加统一数据/离线/物理端到端验收入口，复用已有 PIT、模型、Worker、BI 和报告测试。
+- 增加按需获取官方 UCI 数据与来源/许可证据，不自动下载或绕过限制。
+
+## v0.36.0 · 2026-11-14
+
+- 将实物 DuckDB/Parquet、时间图表聚合、独立真实 CSV PIT 物化、同折模型评价、Mac 现有 Chrome/Perspective、Worker OS 进程崩溃恢复及 SQLite 向前迁移组织为明确的发布门禁。
+- 新增 `featurelab360_gate.py`：生产结论要求全部门禁 PASS；空测试、skipped、跨来源 SHA256、不同物化产物或未观察到真实 WebSocket 均不能被认定为通过。
+- 新增 1 万 / 10 万 / 100 万行临时 Parquet 物理压力测试（分桶数量、均值、极值与独立 SQL 比对），记录耗时、RSS 和文件 SHA256；合成压力数据不作为生产模型性能证据。
+- 新增真实 OS 子进程终止且等待租约自然过期的恢复测试、跨版本 SQLite 迁移测试，以及本地 UI 静态资源版本校验。
+- 发布版本、前端资源缓存版本和完整源码 SHA256 清单同步。无数据库 schema 修改、无新依赖或安装程序；完整验收需在具有 DuckDB/PyArrow、已安装 Chrome、正式 Perspective 资源及**用户提供的真实数据**环境中完成。
+
+## v0.35.6 · 2026-11-13
+
+- 统一分析工作台保留同源数据版本，直接切换手工特征构造、安全公式、高级 tsfresh/Featuretools/PIT、原生 Perspective BI 和不可变报告归档；无需往返旧版多级页面。
+- 新增同源报告与特征集工作区，支持只读预览、浏览器 SHA256 下载核验、不可变归档、历史版本及差异，并直达所选特征集。
+- BI 使用已有原生 Perspective，复核来源、契约、特征集和 Parquet 哈希后才开放正式特征对照与视图保存；候选预览不充当生产结果。
+- 修复统一工作台重复点击监听、版本切换误选数据、长请求回写旧页面以及旧特征集入口不定位的问题。
+- 新增 API、前端、安全及离线验收测试；Mac DuckDB/PyArrow/真实 Perspective 端到端需在目标机器执行。
+
+## v0.35.5 · 2026-11-13
+
+- 统一分析工作台新增证据驱动的自动研判区域，分别展示数据质量、候选特征质量、统计变化和模型价值；每项观察关联真实计算结果的证据路径与来源 SHA256。
+- 新增只读 `GET /workspace/insights`，核对项目、数据版本、契约及源文件；模型对照仅接受正式物化后通过持久化作业、数据库报告和产物 SHA256 联合核验的监督结果。
+- 原始字段、全部候选、筛选后特征展示同模型同折评价，主要指标为回归 MAE 或分类 AP；辅助指标按真实记录显示；折间改善与报表内部一致性被验证，不虚构性能收益。
+- 无标签、标签未确认、来源变更、报告不完整等状态不会显示预测收益；统计分布不能推断因果。报告 Markdown 复用同一套证据政策。
+- 统一工作台加载新组件，支持来源上下文切换、刷新及只读状态轮询；保留高级手动入口、原有任务流程与审批门禁。
+- 新增单元、API、前端与 Chromium DOM 检查。真实 DuckDB/PyArrow 和 Mac Perspective 仍属于实机验收条件。
+
+## v0.35.3—v0.35.4 · 2026-11-13
+
+- v0.35.3：数据分析与特征计算的图表补充真实统计证据解释、坐标语义和时间刻度。不同物理量纲不再共用纵轴；技术 SHA 和配方收进详情。修复时间图错误读取桶内数量的问题。
+- v0.35.3：废除重复“继续”与跨页面导航，遗留特征分析路由转入 `/analysis?section=features`，保留资产/版本并支持刷新和浏览器后退。
+- v0.35.4：新增项目统一分析工作台（概览、质量、图表、自动特征、成果）；数据发布后以发布者权限排队执行低成本画像和 16 项规则候选预览，自动任务不运行模型训练或正式发布。
+- v0.35.4：API 提供同源分析/候选状态和幂等启动；未配置模型 API 也能完成基础工作流，字段和时间安全边界继续保留。
+- 现场验收门禁：真实 DuckDB/PyArrow 与 Mac Perspective 浏览器实际数值一致性；当前容器不可替代现场验证。
+
+## v0.34.1—v0.34.3 · 2026-11-13
+
+- v0.34.1：自动分析默认转为自适应多类型候选策略；算法族及字段交错分配，来源统计只用无标签证据，不安全窗口禁用。
+- v0.34.2：特征工作台按算子族分组，显示真实质量、图表、策略与方法禁用原因；候选正文点击查看、复选框独立勾选。
+- v0.34.3：已有 tsfresh/Featuretools 受控表单与已算高级候选纳入统一工作台；仅提供只读元数据，保留 PIT 回接、人工审核和模型评价隔离。
+- 新增接口与前后端合约测试；DuckDB/Parquet、高级依赖和 macOS Perspective 真实端到端仍需现场验收。详见 `FEATURELAB_V0341_V0343_IMPLEMENTATION_REVIEW.md`。
+
+## v0.33.3 - 2026-11-13
+
+- Durable server-owned FeatureLab session continuation; browser progress polling is now read-only.
+- Explicit failed-job retry with revision and owner permission checks; background editor rights checked on every continuation.
+- Four bounded LLM-mode regression paths: enabled, disabled, timeout, unauthorized tool requests.
+- Source/version/contract staleness blocks continuation and current delivery; Markdown reports label old sources.
+- Artifact byte SHA256, FeatureSet and evaluation identity, client BI receipt and report UTF-8 hash are cross-checked.
+- No new schema or dependencies. Mac DuckDB/Perspective real rendering and provider API remain pending site acceptance.
+
+# v0.32.4 · 2026-11-12
+
+- 增加旧窗口配方只读风险审计与发布阻断；手工窗口显式绑定已确认排序和设备键。
+- 智能分析返回持久状态推导的下一步操作。
+- 增加独立 CSV 字节与原生 Parquet、模型评价、浏览器身份的同源发行门禁。
+- 生产数据与 DuckDB/Perspective 真实运行未取得证据时维持阻断。
+
+# v0.32.3｜P0/P1：时序拓扑安全与自动分析体验闭环（2026-11-12）
+
+- 自动时序窗口只从已确认真实事件时间或数值 `order_index` 推导排序键，多设备按已确认实体键分组。全量检查空值、设备内重复排序值和来源乱序；证据不足时仅生成逐行特征。
+- 编译阶段再次拒绝空键或重复键，防止前端/Agent 跳过数据契约门禁；旧版手工按行号计算的历史配方仍可被读取，但不得作为生产时间证据。
+- 修复“预测不良率”与“分类特征分布”等任务误判；支持 20 万—200 万行受控后台全量 SQL，并清晰提示 200 万以上需分区策略。
+- 高级 tsfresh/Featuretools 仅按数据拓扑推荐且需人工确认，未绑定多表来源时不自动执行。模型提供有界字段与模板建议，内部分级字段名在调用外部模型时脱敏；禁止自动执行写入操作。
+- “确认采用并计算”合并草稿保存及正式物化排队，需人工勾选；请求重试幂等。监督反馈保留训练折证据，不改写已物化资产；UI 仅在同源 SHA256 核验后展示反馈。
+- 新增 P0/P1 接口/数值/前端回归和源码门禁；DuckDB、PyArrow、真实工业数据和 macOS 原生 Perspective 完整验收仍为生产发布阻断条件。
+
+# v0.32.2｜监督评价自动衔接、同源报告与文档收束（2026-11-12）
+
+- v0.32.1 Agent 的规划/策略/候选筛选/证据解释继续使用固定服务端工具序列、严格白名单和无模型回退，并持久化模型参与决策的审计状态。
+- 对监督分析增加**独立人工确认**：标签、预测决策时点、标签可用时间必须已确认；过程数据的可用时间不能冒充标签可用时间。尚不具备契约时保持探索模式。
+- 正式物化后核验真实文件、任务/数据库与产物 SHA256，再自动提交相应的监督或探索评价；评价报告必须绑定相同产物、数据来源、配方和契约修订。
+- BI 打开请求核对资产/版本/FeatureSet/产物 ID，双面板客户端回执与同源产物 SHA256 绑定；独立浏览器运行尚未验收时继续标记未通过生产门禁。
+- 统一报告包含数据、Agent、候选、模型对照（若有）及 BI 同源证据，报告 SHA256 直接按 UTF-8 Markdown 原始字节计算；支持机器读取同源交付 JSON。
+- 修正监督字段下拉框传参错误、监督已评价仍显示“探索评价”的矛盾提示；继续沿用 Schema 35，无需重建数据库。
+- 重整当前 README、API、ACCEPTANCE、FILE_TREE，新增用户指南及文档审阅；历史说明保存为追溯资料，不再作为当前功能定义。
+- 生产级限制：本环境无企业生产原始数据、真实模型 API、完整 DuckDB/Arrow 与 Perspective 浏览器证据，源码检查不能被解释为真实业务效果验收。
+
+# v0.32.1 | Evidence-bounded FeatureLab Agent (2026-11-12)
+
+- LLM advice is constrained to objective, allowlisted numeric fields/template, quality-eligible candidate ordering and server-authored evidence IDs; malformed/overprivileged proposals fall back to deterministic rules.
+- Project/actor-scoped analysis session persists a fixed server-executed tool plan and compact per-step receipts with source SHA and contract revision. No model-authored Python, SQL, writes, feature publishing or evaluation claims are executed.
+- Automatic post-preview candidate adjustment and evidence-only explanation; both are shown by default and included in the export report, with meaningful missing-model and blocked-proposal states.
+- User-confirmed saving/materialization remains separate, recorded as human actions. Added read-only agent evidence endpoint and source QA acceptance entry.
+- No destructive DB migration; schema 35 unchanged. Real model provider, DuckDB, native Perspective UI/WS and enterprise production data remain release gates.
+
+# v0.32.0 | Intelligent Feature Analysis Workspace
+
+- Single goal-driven feature analysis page; removed duplicate feature headings and reduced foreground navigation.
+- Added source-pinned, resumable automatic profiling, bounded candidate generation, full-scope quality evidence, selection, draft/materialization and exploratory evaluation.
+- Added conservative numerical Time/sequence inference with explicit field-role confirmation, without fake calendar-time conversion.
+- Added optional bounded LLM goal understanding, field-template strategy and evidence narration; all numerical results computed by existing engine and local fallback retained.
+- Normal source-mode start attempts safe native BI auto-build only on missing/stale resources. Current ZIP still requires Node 24 and real npm/Python dependencies for production build.
+- Upgraded catalog additively to schema 35; retained all legacy feature interfaces.
+
 ### v0.31.0 Mac/source-only 安装修复（2026-11-12）
 
 - 新增 `source-repair`，通过发布清单校验的可见隐藏配置副本修复 `.env.example` 与 CI 哈希问题；任何改动均先保留原始字节及哈希，`--dry-run` 可预览。

@@ -6,11 +6,28 @@ from timepilot.feature_contracts import DataContract,TaskSpecV2,FeatureSpecV2,di
 
 def ensure_supervised_contract(contract:DataContract,task:TaskSpecV2):
     if task.mode!='supervised':return
-    if contract.state!='confirmed' or not contract.timezone:
-        raise ValueError('监督评价要求已确认、带时区的时间契约')
-    if not contract.entity_field_ids or not contract.event_time_field_id or not contract.available_at_field_id:
-        raise ValueError('监督评价必须确认实体、事件时间和业务可用时间')
+    if contract.state!='confirmed':
+        raise ValueError('监督评价要求已确认的数据契约')
     fields={f.field_id:f for f in contract.fields}
+    if task.split_kind in ('kfold','stratified','group'):
+        label=fields.get(task.label_field_id)
+        if label is None or label.confirmation!='confirmed' or label.role!='label' or label.semantic_type!='numeric':
+            raise ValueError('静态监督目标必须是经过确认的数值标签字段')
+        if task.task_type=='regression' and task.split_kind=='stratified':
+            raise ValueError('连续回归目标不适用未分箱的分层 K 折；请选择普通 K 折或分组 K 折')
+        if not task.static_independence_confirmed:
+            raise ValueError('缺少静态样本独立性与决策时可用性确认')
+        if set(task.entity_field_ids)!=set(contract.entity_field_ids):
+            raise ValueError('静态监督任务实体范围必须与已确认的数据契约完全一致，不能绕过分组隔离')
+        for fid in task.group_field_ids:
+            field=fields.get(fid)
+            if field is None or field.confirmation!='confirmed' or field.role not in ('entity_key','batch_key'):
+                raise ValueError('静态分组字段必须是已确认的设备或批次键')
+        return
+    if not contract.timezone:
+        raise ValueError('时间监督评价要求已确认的时区')
+    if not contract.entity_field_ids or not contract.event_time_field_id or not contract.available_at_field_id:
+        raise ValueError('时间监督评价必须确认实体、事件时间和业务可用时间')
     for key,fid in [('事件时间',contract.event_time_field_id),('业务可用时间',contract.available_at_field_id),
                     ('预测时刻',task.prediction_time_field_id),('标签可用时间',task.label_available_at_field_id)]:
         f=fields.get(fid)
@@ -43,7 +60,12 @@ def ensure_pit_evidence(spec:FeatureSpecV2,task:TaskSpecV2,artifact_metadata:dic
     if not isinstance(pit,dict) or pit.get('status')!='verified' or pit.get('scope')!='full':
         raise ValueError('物化结果缺少全量监督 PIT 验证证据')
     if pit.get('task_sha256')!=digest(task) or pit.get('contract_revision')!=spec.contract_revision:
-        raise ValueError('物化结果的时间安全证据与当前任务不一致')
+        raise ValueError('物化结果的任务安全证据与当前任务不一致')
+    if task.split_kind in ('kfold','stratified','group'):
+        if pit.get('validation_kind')!='static_row_local' or pit.get('point_in_time_applicable') is not False:
+            raise ValueError('静态监督产物缺少逐行计算与非时间任务的独立核验证据')
+    elif pit.get('validation_kind') not in (None,'temporal_point_in_time'):
+        raise ValueError('时间监督产物的 PIT 核验类型不匹配')
     if artifact_metadata.get('source_sha256')!=spec.source.source_sha256:
         raise ValueError('物化结果与源资产指纹不一致')
     return pit

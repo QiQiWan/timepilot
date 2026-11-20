@@ -74,8 +74,8 @@ BI 系统以可见、可复算、可追踪的表格操作为中心，兼容文�
 
 表详情 `/bi/table/{id}` 默认提供可滚动表格、分页、排序、筛选和字段侧栏。点击单元格创建位置明确的编辑草稿；编辑可以通过 `set_cell` 这一受控变换步骤进入预览与保存流程。表字段与清洗、报表、AI 助手、预测转换分别有独立子路由。
 
-模型服务商增加 OpenAI、DeepSeek、阿里云百炼（北京/新加坡）、智谱、Kimi、火山方舟、Gemini、Claude、OpenRouter、Groq 和 Ollama，外加自定义兼容服务。Claude 使用 Messages API；其他供应商走各自的 OpenAI 兼容端点。预设不代表账号已授权，模型 ID 仍由用户确认；当前只保存一个活动连接。详见 [BI_GRID_V030.md](BI_GRID_V030.md)。
+模型服务商增加 OpenAI、DeepSeek、阿里云百炼（北京/新加坡）、智谱、Kimi、火山方舟、Gemini、Claude、OpenRouter、Groq 和 Ollama，外加自定义兼容服务。Claude 使用 Messages API；其他供应商走各自的 OpenAI 兼容端点。预设不代表账号已授权，模型 ID 仍由用户确认；当前只保存一个活动连接。详见 历史 BI 网格说明（原 `BI_GRID_V030.md` 未纳入当前发行包；请参考 [现行 BI 指南](BI_USER_GUIDE_CN.md)）。
 
 ## v0.4.0 补充：从单步建议扩展到受控多步骤 BI
 
-目前支持 `bi.transform`、`bi.aggregate`、`bi.pivot`、`bi.profile` 四类多步骤工作流节点，最多 6 步。模型只给出结构化计划，独立预览工具在内存中验证全部步骤，写入操作必须提交与计划和数据快照绑定的限时一次性凭证。用户先看预览，再生成一个新版本；原始数据保留。真实第三方模型的计划正确率和工程稳定性仍需单独评估。技术细节见 [`BI_WORKFLOW_V040.md`](BI_WORKFLOW_V040.md)。
+目前支持 `bi.transform`、`bi.aggregate`、`bi.pivot`、`bi.profile` 四类多步骤工作流节点，最多 6 步。模型只给出结构化计划，独立预览工具在内存中验证全部步骤，写入操作必须提交与计划和数据快照绑定的限时一次性凭证。用户先看预览，再生成一个新版本；原始数据保留。真实第三方模型的计划正确率和工程稳定性仍需单独评估。技术细节见 历史 BI 工作流说明（原 `BI_WORKFLOW_V040.md` 未纳入当前发行包；请以 `/docs` 为准）。

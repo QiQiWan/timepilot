@@ -300,3 +300,46 @@ def _resample(frame:pd.DataFrame,spec:ResamplingSpec,frequency:str,timezone:str)
            'event_aggregation':'bucket_any' if 'event_flag' in frame else None,
            'regime_aggregation':'constant_or_reject' if '_regime_raw' in frame else None}
     return pd.DataFrame(out),audit
+
+
+def inspect_device_ood_folds(partitions:dict, *, folds:int) -> dict:
+    """Non-fitting mirror of RuntimeEngine's device/time evaluation partition.
+
+    Uses the *exact* independent chronological split, then enforces mutually
+    exclusive held-out devices, labels mature by cutoff, both classes and no
+    batch overlap. This is a preflight; fold SHA is frozen by execution later.
+    """
+    historical=pd.concat([partitions['train'],partitions['validation']],ignore_index=True)
+    validation=partitions['validation']
+    ids=sorted(set(historical['series_id'].astype(str)))
+    if len(ids)<folds:
+        raise ValueError(f'跨设备验证需要至少 {folds} 台历史设备，当前 {len(ids)} 台')
+    cutoff=pd.to_datetime(validation['timestamp'],utc=True).min()
+    clocks=pd.to_datetime(historical['timestamp'],utc=True)
+    mature=pd.to_datetime(historical['label_available_at'],utc=True)
+    group=historical['series_id'].astype(str)
+    rows=[];blockers=[]
+    for number,block in enumerate(np.array_split(np.array(ids,dtype=object),folds),1):
+        heldout={str(v) for v in block.tolist()}
+        train=historical.loc[(clocks<cutoff)&(mature<=cutoff)&(~group.isin(heldout))]
+        valid=validation.loc[validation['series_id'].astype(str).isin(heldout)]
+        issues=[]
+        if train.empty:issues.append('没有成熟的训练样本')
+        if valid.empty or set(valid['series_id'].astype(str))!=heldout:
+            issues.append('留出设备缺少独立验证时段的样本')
+        if not train.empty and train['target'].nunique()!=2:issues.append('训练样本没有同时包含正负标签')
+        if not valid.empty and valid['target'].nunique()!=2:issues.append('验证样本没有同时包含正负标签')
+        if not train.empty and not valid.empty and 'batch_key' in historical:
+            if set(train['batch_key'].astype(str))&set(valid['batch_key'].astype(str)):
+                issues.append('训练与验证共享同一批次')
+        if set(train['series_id'].astype(str))&heldout:
+            issues.append('训练集包含留出设备')
+        rows.append({'fold':number,'heldout_devices':sorted(heldout),
+                     'train_rows':len(train),'validation_rows':len(valid),
+                     'positive_train':int(train['target'].sum()) if len(train) else 0,
+                     'positive_validation':int(valid['target'].sum()) if len(valid) else 0,
+                     'cutoff_utc':cutoff.isoformat(),'ready':not issues,'blockers':issues})
+        blockers.extend(f'设备折 {number}：{message}' for message in issues)
+    return {'ready':not blockers,'folds':rows,'blockers':blockers,
+            'scope':'device_disjoint_validation_only;independent_test_remains_chronological',
+            'evidence':'preflight_counts_not_trained_metrics'}

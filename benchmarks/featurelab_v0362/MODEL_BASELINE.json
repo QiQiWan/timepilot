@@ -1,0 +1,91 @@
+{
+  "cases": {
+    "industrial_pit": {
+      "all_folds_disjoint": true,
+      "fold_count": 3,
+      "label_availability_checked": true,
+      "means": {
+        "raw_only": 0.210909,
+        "selected_features": 0.214299,
+        "with_features": 0.214299
+      },
+      "metric": "average_precision",
+      "scenario": "industrial_pit",
+      "selection_frequencies": [
+        {
+          "folds": 3,
+          "name": "sensor_a_delta_1"
+        },
+        {
+          "folds": 3,
+          "name": "sensor_a_lag_1"
+        }
+      ],
+      "source_sha256": "345906b09ed7651d63d2a01ffcaa5eb377a31bcf976ac89bbb029078795a4a5c",
+      "split_kind": "time",
+      "split_manifest_sha256": "e901b7caa4edcc37ba401a5bbba01a9025b52875ab471ba9b7944ba3d5222469",
+      "train_selection_scopes": [
+        "outer_training_fold_only"
+      ]
+    },
+    "static_binary": {
+      "all_folds_disjoint": true,
+      "fold_count": 3,
+      "label_availability_checked": false,
+      "means": {
+        "raw_only": 0.253073,
+        "selected_features": 0.268053,
+        "with_features": 0.268053
+      },
+      "metric": "average_precision",
+      "scenario": "static_binary",
+      "selection_frequencies": [
+        {
+          "folds": 3,
+          "name": "flux_x_offset"
+        },
+        {
+          "folds": 3,
+          "name": "temp_high"
+        }
+      ],
+      "source_sha256": "9ecb4bbd587be4f945f01023e376a6978759f80c952ebe450ef2a60e57157596",
+      "split_kind": "stratified",
+      "split_manifest_sha256": "a7ff20546ec50e8d0eeedc7ac1534bf8280aadabe996652214ed56f0a6684c7b",
+      "train_selection_scopes": [
+        "outer_training_fold_only"
+      ]
+    },
+    "static_regression": {
+      "all_folds_disjoint": true,
+      "fold_count": 3,
+      "label_availability_checked": false,
+      "means": {
+        "raw_only": 16.197071,
+        "selected_features": 10.047295,
+        "with_features": 7.101276
+      },
+      "metric": "mae",
+      "scenario": "static_regression",
+      "selection_frequencies": [
+        {
+          "folds": 3,
+          "name": "area_x_age"
+        },
+        {
+          "folds": 2,
+          "name": "area_squared"
+        }
+      ],
+      "source_sha256": "686a09a7ab88f0168ebaf0dbba1810ba6bdd63625d6360b7268037f5dbc4c0a5",
+      "split_kind": "kfold",
+      "split_manifest_sha256": "b94ffb8f7b5afb7e7b1b6065c5d44261cc4639552a5c049c61cf504bcd0b9b57",
+      "train_selection_scopes": [
+        "outer_training_fold_only"
+      ]
+    }
+  },
+  "engine": "timepilot_feature_evaluation",
+  "schema_version": 1,
+  "scope": "synthetic_functional_regression_only"
+}

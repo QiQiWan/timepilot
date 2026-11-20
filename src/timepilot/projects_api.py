@@ -5,13 +5,14 @@ import asyncio
 import json
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from timepilot.projects import ProjectCatalog, ProjectCreate, ProjectEdit, ProjectError
 from timepilot.data_assets import asset_id_for
 from timepilot.generic_assets import GenericAssetStore, PublishGeneral
 from timepilot.data_platform import (DataPlatform, SelectionInput, QualityPolicy, QualityDecision, AssetRename)
-from timepilot.project_publication import ProjectPublication
+from timepilot.publication_reconciliation import ReconciliationDecision
 from timepilot.data_understanding import UnderstandingRequest, Approval
 from timepilot.workbook_intelligence import WorkbookIntelligence
 from timepilot.smart_import import SmartImportError
@@ -93,7 +94,6 @@ def create_projects_router(catalog: ProjectCatalog, understanding, native=None, 
     generic=GenericAssetStore(catalog.imports)
     platform=DataPlatform(catalog,native,generic)
     lifecycle=AssetLifecycle(catalog,platform)
-    publisher=ProjectPublication(catalog,native,platform=platform,generic=generic)
     industrial=IndustrialBI(catalog,native)
     batches=ProjectPublishBatches(catalog,publication_jobs) if publication_jobs is not None else None
     import_tools=ImportToolRegistry(catalog)
@@ -472,11 +472,17 @@ def create_projects_router(catalog: ProjectCatalog, understanding, native=None, 
     async def publish_general(pid: str, iid: str, candidate_id: str, request: PublishGeneral):
         """Confirm actual source schema and publish ALL columns to Perspective BI.
 
-        Ingestion and BI registration are independent. A failed BI import can
-        be retried with exactly the same source/version without reconversion.
+        Both immediate and queued API calls now enter the same durable job,
+        lease, write-ahead journal and reconciliation protocol. Preserve the
+        legacy ready/prepared response for uncontended immediate operations.
         """
         try:
-            return await asyncio.to_thread(publisher.publish,pid,iid,candidate_id,request)
+            if publication_jobs is None:
+                raise HTTPException(503,detail='持久发布服务未启用，禁止无记录的同步写入')
+            result=await asyncio.to_thread(publication_jobs.publish_sync,pid,iid,candidate_id,request)
+            if result['status'] in ('queued','running'):
+                return JSONResponse(status_code=202,content=result)
+            return result
         except Exception as exc:fail(exc)
 
     @router.post('/{pid}/imports/{iid}/regions/{candidate_id}/publish-jobs',status_code=202)
@@ -501,9 +507,33 @@ def create_projects_router(catalog: ProjectCatalog, understanding, native=None, 
         try:return publication_jobs.checkpoint(pid,jid)
         except Exception as exc:fail(exc)
 
+    @router.get('/{pid}/publish-jobs/{jid}/journal')
+    def publication_journal(pid:str,jid:str):
+        if publication_jobs is None:raise HTTPException(503,detail='后台数据发布服务未启用')
+        try:return publication_jobs.journal(pid,jid)
+        except Exception as exc:fail(exc)
+
     @router.post('/{pid}/publish-jobs/{jid}/retry')
     def publication_retry(pid:str,jid:str):
         try:return publication_jobs.retry(pid,jid)
+        except Exception as exc:fail(exc)
+
+    @router.get('/{pid}/publish-jobs/{jid}/reconciliation')
+    def publication_reconciliation_evidence(pid:str,jid:str):
+        if publication_jobs is None:raise HTTPException(503,detail='后台数据发布服务未启用')
+        try:return publication_jobs.reconciliation.inspect(pid,jid)
+        except Exception as exc:fail(exc)
+
+    @router.get('/{pid}/publish-jobs/{jid}/reconciliation/history')
+    def publication_reconciliation_history(pid:str,jid:str):
+        if publication_jobs is None:raise HTTPException(503,detail='后台数据发布服务未启用')
+        try:return publication_jobs.reconciliation.history(pid,jid)
+        except Exception as exc:fail(exc)
+
+    @router.post('/{pid}/publish-jobs/{jid}/reconciliation/decide')
+    def publication_reconciliation_decide(pid:str,jid:str,request:ReconciliationDecision):
+        if publication_jobs is None:raise HTTPException(503,detail='后台数据发布服务未启用')
+        try:return publication_jobs.reconciliation.decide(pid,jid,request)
         except Exception as exc:fail(exc)
 
     @router.get('/{pid}/industrial/assets/{aid}/suggestions')

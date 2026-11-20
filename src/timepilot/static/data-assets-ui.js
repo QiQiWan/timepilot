@@ -77,7 +77,7 @@
     ctx.root.innerHTML=`<div class="page-heading"><div><h1>原生 BI · ${E(version.name)}</h1><p>直接引用现有不可变数据版本。拖拽透视、图表和字段筛选由 Perspective 执行。</p></div><div class="action-row"><a class="button" href="${ctx.projectId?'/projects/'+U(ctx.projectId)+'/data/'+U(id):link(id,vid)}">返回数据资产</a>${ctx.projectId?'<button class="button button-primary" data-project="make-editable">生成可编辑工作副本</button>':''}</div></div><div class="panel"><div class="smart-actions"><button type="button" class="button" data-asset="pivot">透视</button><button type="button" class="button" data-asset="bar">柱状图</button><button type="button" class="button" data-asset="grid">明细网格</button><button type="button" class="button" data-asset="reconnect">重新连接</button></div><div id="asset-native-root" style="min-height:500px"><p class="muted">正在加载已编译的 Perspective...</p></div></div>`;
     const el=document.getElementById('asset-native-root');try{
       await ctx.req('/ready');
-      nativeModule=await import('/assets/native-bi/perspective-entry.js');
+      nativeModule=await window.TimePilotPerspectiveLoader.load();
       const proto=location.protocol==='https:'?'wss:':'ws:';
       const url=`${proto}//${location.host}/api/v1/native-bi/linked/${U(id)}/versions/${U(vid)}/ws?selection=${encodeURIComponent(JSON.stringify(selected))}`;
       await nativeModule.mountPerspectiveRemote(el,url);nativeMounted=true;

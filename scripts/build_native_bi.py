@@ -13,6 +13,10 @@ import sys
 import tempfile
 from pathlib import Path
 
+# Direct importlib loading of this script (build QA) does not add scripts/ to sys.path.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from npm_runtime import npm_argv
+
 ROOT = Path(__file__).resolve().parents[1]
 FRONTEND = ROOT / 'frontend' / 'native-bi'
 OUTPUT = ROOT / 'src' / 'timepilot' / 'static' / 'native-bi'
@@ -31,7 +35,7 @@ def main() -> int:
         if not (FRONTEND / 'node_modules').is_dir():
             return False
         try:
-            check = subprocess.run(['npm', 'ls', '--depth=0', '--json'], cwd=FRONTEND,
+            check = subprocess.run(npm_argv('ls', '--depth=0', '--json'), cwd=FRONTEND,
                                    text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                    timeout=35)
             if check.returncode != 0:
@@ -50,12 +54,28 @@ def main() -> int:
             print('ERROR: Frontend node_modules missing or mismatched, npm install disabled.',
                   file=sys.stderr)
             return 2
-        command = ['npm', 'ci', '--no-audit', '--no-fund']
+        command = npm_argv('ci', '--no-audit', '--no-fund')
         print('Installing/verifying pinned Perspective frontend packages...', flush=True)
         try:
-            subprocess.run(command, cwd=FRONTEND, check=True, timeout=600)
-        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+            completed = subprocess.run(command, cwd=FRONTEND, check=False, timeout=600,
+                                       stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                       text=True)
+        except (OSError, subprocess.TimeoutExpired) as exc:
             print(f'ERROR: npm dependency install failed: {exc}.', file=sys.stderr)
+            return 2
+        output = completed.stdout or ''
+        if output:
+            print(output[-12000:], flush=True)
+        if completed.returncode:
+            # Separate a broken lock from DNS, permissions and network errors.
+            # setup_native_bi will regenerate only for this *specific* case.
+            if ('EUSAGE' in output and ('from lock file' in output or
+                                        'can only install packages when' in output)):
+                print('[BI LOCK INVALID] npm ci rejected the current lock; '
+                      'use the isolated clean-lock bootstrap.', file=sys.stderr)
+                return 3
+            print('ERROR: npm dependency install failed (exit=' +
+                  str(completed.returncode) + ').', file=sys.stderr)
             return 2
         if not node_modules_current():
             print('ERROR: npm completed but top-level installed versions still mismatch package.json.',
@@ -68,7 +88,7 @@ def main() -> int:
     try:
         env = os.environ.copy()
         env['TIMEPILOT_NATIVE_BI_OUTDIR'] = str(staging)
-        subprocess.run(['npm', 'run', 'build'], cwd=FRONTEND, env=env, check=True)
+        subprocess.run(npm_argv('run', 'build'), cwd=FRONTEND, env=env, check=True)
         sys.path.insert(0, str(ROOT / 'src'))
         from timepilot.native_bi_bundle import generate_manifest, bundle_status, frontend_source_hash
         result = generate_manifest(staging, frontend_sha256=frontend_source_hash(FRONTEND))

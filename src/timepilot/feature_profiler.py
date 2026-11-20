@@ -38,6 +38,32 @@ class FeatureProfiler:
                      COUNT(*)-COUNT({safe}) FROM __tp_effective''').fetchone()
                     from timepilot.native_bi import safe_json
                     stats.update(dict(zip(('min','max','mean','std','distinct_count','invalid_numeric_count'),safe_json(row))))
+                    # Extended unsupervised evidence supports adaptive feature
+                    # planning. Keep every statistic tied to the full source
+                    # and make unavailable aggregations explicit, not invented.
+                    try:
+                        ext=con.execute(f'''SELECT
+                            SUM(CASE WHEN {safe}=0 THEN 1 ELSE 0 END),
+                            COUNT({safe}),
+                            APPROX_QUANTILE({safe}, 0.1),
+                            APPROX_QUANTILE({safe}, 0.5),
+                            APPROX_QUANTILE({safe}, 0.9)
+                            FROM __tp_effective''').fetchone()
+                        nzero,nvalid,p10,p50,p90=safe_json(ext)
+                        stats.update({'zero_count':int(nzero or 0),
+                            'zero_rate':(nzero/nvalid if nvalid else None),
+                            'p10':p10,'median':p50,'p90':p90,
+                            'extended_evidence':'full_source'})
+                    except Exception:
+                        stats['extended_evidence']='unavailable'
+
+                if (field.semantic_type=='category' and field.confirmation=='confirmed'
+                    and field.role in ('unspecified','value','regime') and field.classification!='restricted'):
+                    rows=con.execute(f'''SELECT CAST({col} AS VARCHAR), COUNT(*) AS n
+                        FROM __tp_effective WHERE {col} IS NOT NULL
+                        GROUP BY 1 ORDER BY n DESC, 1 LIMIT 8''').fetchall()
+                    stats['top_categories']=[{'value':str(v)[:120],'count':int(n)}
+                        for v,n in rows if v is not None and len(str(v))<=120]
                 profile['fields'].append(stats)
             if contract.event_time_field_id:
                 field=next(f for f in contract.fields if f.field_id==contract.event_time_field_id)
@@ -48,9 +74,13 @@ class FeatureProfiler:
                                  'max':str(row[1]) if row[1] is not None else None,
                                  'distinct_times':int(row[2])}
             else:
-                profile['warnings'].append('没有已核实的时间字段，只能做记录顺序分析')
+                profile['warnings'].append('没有已核实的真实日历时间；仅在确认序号且设备分组完成检查后可计算记录窗口')
             from timepilot.feature_temporal_profile import temporal_diagnostics
             profile['temporal_diagnostics']=temporal_diagnostics(con,contract)
+            from timepilot.feature_topology import infer_topology
+            profile['topology']=infer_topology(contract,profile['temporal_diagnostics'])
+            if not profile['topology']['safe_for_windows']:
+                profile['warnings'].append('缺少安全窗口排序/设备分组证据，自动分析仅建议逐行特征')
         profile['query_fingerprint']=digest({'source_sha':meta['sha256'],'contract_revision':contract.revision,
-                                            'profiler_version':'2.0','scope':'full'})
+                                            'profiler_version':'0.34.1','scope':'full'})
         return profile

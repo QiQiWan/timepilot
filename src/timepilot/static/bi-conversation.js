@@ -72,7 +72,7 @@
   }
   async function loadViews(){views=await ctx.req(prefix()+'/views?asset_id='+U(asset.asset_id));}
   async function loadDerived(){
-    try{derivatives=(await ctx.req('/api/v1/projects/'+U(ctx.projectId)+'/derived')).filter(d=>d.workspace_id===workspace?.workspace_id);}
+    try{derivatives=(await ctx.req('/projects/'+U(ctx.projectId)+'/derived')).filter(d=>d.workspace_id===workspace?.workspace_id);}
     catch(err){console.warn('派生数据状态读取失败',err);derivatives=[];}
   }
   async function mount(context,meta,dataVersion){
@@ -349,7 +349,7 @@
         const name=await dialog().text('创建派生数据',asset.name+' · 派生版本','从当前完整数据计算结果生成可审核的数据资产。');
         if(!name?.trim())return;
         if(!await dialog().confirm('提交派生数据审核','将记录数据来源、字段及计算范围；正式发布前需要审批。'))return;
-        const created=await ctx.req('/api/v1/projects/'+U(ctx.projectId)+'/derived',post({
+        const created=await ctx.req('/projects/'+U(ctx.projectId)+'/derived',post({
           workspace_id:workspace.workspace_id,name:name.trim(),request_id:reqId()}));
         await loadDerived();addMessage('engine','已提交派生资产审核：'+created.estimated_rows+' 行。发布前需要审批，训练暂不可使用。');
       }else if(action==='refresh-derived'){
@@ -358,19 +358,19 @@
         const rid=details.derived;
         const decision=await dialog().text('审核意见','已核对来源、字段、范围及数据用途','企业模式需要具有相应权限的管理员进行审批。');
         if(!decision?.trim())return;
-        const approved=await ctx.req('/api/v1/projects/'+U(ctx.projectId)+'/derived/'+U(rid)+'/approve',
+        const approved=await ctx.req('/projects/'+U(ctx.projectId)+'/derived/'+U(rid)+'/approve',
           post({confirmed:true,reason:decision.trim()}));
         await loadDerived();addMessage('engine','审批结果：'+approved.status+'。');
       }else if(action==='publish-derived'){
         const rid=details.derived;
         if(!await dialog().confirm('发布派生数据','将扫描完整记录并生成新的不可变数据资产。', {confirmText:'确认发布'}))return;
-        const published=await ctx.req('/api/v1/projects/'+U(ctx.projectId)+'/derived/'+U(rid)+'/publish',post({}));
+        const published=await ctx.req('/projects/'+U(ctx.projectId)+'/derived/'+U(rid)+'/publish',post({}));
         await loadDerived();addMessage('engine','派生数据已发布 '+published.published_rows+' 行，原生资产编号：'+published.native_asset_id);
       }else if(action==='derived-model'){
         const rid=details.derived;
         const name=await dialog().text('创建建模任务',asset.name+' · 派生建模');if(!name)return;
         if(!await dialog().confirm('创建建模草稿','使用已审核发布的完整派生数据；随后需确认目标、时间字段与特征。'))return;
-        const created=await ctx.req('/api/v1/projects/'+U(ctx.projectId)+'/derived/'+U(rid)+'/model-drafts',
+        const created=await ctx.req('/projects/'+U(ctx.projectId)+'/derived/'+U(rid)+'/model-drafts',
           post({name:name.trim(),confirm_scope:true}));
         addMessage('engine','派生数据已冻结并创建待审核模型草稿。');
         if(window.TimePilotModeling?.openDraft)await window.TimePilotModeling.openDraft({ctx,projectId:ctx.projectId,

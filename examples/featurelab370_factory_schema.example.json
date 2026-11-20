@@ -1,0 +1,12 @@
+{
+  "dataset_name": "equipment_quality_verified",
+  "timezone": "Asia/Shanghai",
+  "device_id": "equipment_id",
+  "observation_time": "prediction_timestamp",
+  "measurement_available_at": "measurement_available_at",
+  "label": "quality_label",
+  "label_event_at": "defect_event_at",
+  "label_available_at": "inspection_result_available_at",
+  "sensors": ["motor_current_a", "temperature_c", "pressure_kpa"],
+  "label_task": "future_failure"
+}

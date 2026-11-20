@@ -17,9 +17,9 @@ from timepilot.feature_operator_registry import OPERATORS, SUPPORTED, compatible
 from timepilot.projects import now
 from timepilot.enterprise_security import SecurityError
 
-SUGGESTION_VERSION = '0.28.0'
-TEMPLATES = ('basic', 'temporal', 'industrial', 'quality', 'advanced')
-MAX_CANDIDATES = 60
+SUGGESTION_VERSION = '0.34.1'
+TEMPLATES = ('basic', 'temporal', 'industrial', 'quality', 'advanced', 'adaptive')
+MAX_CANDIDATES = 64
 MAX_PREVIEW = 8
 _SUSPICIOUS_ID = re.compile(r'(^|[_\-\s])(id|uuid|guid|sn|serial|barcode|code|编号|编码|序列号|流水号|工单号|批次号)([_\-\s]|$)', re.I)
 _SUSPICIOUS_TIME = re.compile(r'(^|[_\-\s])(time|date|timestamp|datetime|year|month|day|时间|日期|时刻)([_\-\s]|$)', re.I)
@@ -79,7 +79,8 @@ def make_feature_name(op, fields, params, existing=()):
             'rolling.sum':'sum','rolling.median':'median','rolling.p90':'p90','rolling.range':'range',
             'rolling.cv':'cv','rolling.zscore':'zscore','relative.change':'pct_change',
             'transform.log1p':'log1p','transform.abs':'abs','transform.sqrt':'sqrt',
-            'expression.safe':'custom'}[op]
+            'expression.safe':'custom','category.is_value':'category',
+            'industrial.reset_mean':'reset_mean','industrial.reset_sum':'reset_sum'}[op]
     window=params.get('lag',params.get('window',params.get('window_seconds')))
     middle=f'_{window}' if window is not None else ''
     seed=f'{names}_{suffix}{middle}'
@@ -91,32 +92,41 @@ def make_feature_name(op, fields, params, existing=()):
     return safe[:64]
 
 
-def propose(contract, *, template='basic', budget=30, selected_fields=None, task_mode='exploration'):
+def propose(contract, *, template='basic', budget=30, selected_fields=None, task_mode='exploration', topology=None, category_values=None, profile=None, objective='explore', strategy_plan=None):
     """Reproducible candidates for existing *executable* operators only."""
     if template not in TEMPLATES:raise ValueError('未知自动特征模板')
     if task_mode not in ('exploration','supervised'):raise ValueError('未知特征任务类型')
-    if not 1<=budget<=MAX_CANDIDATES:raise ValueError('候选预算应为 1—60')
+    if not 1<=budget<=MAX_CANDIDATES:raise ValueError('候选预算应为 1—64')
     allowed=compatible_fields(contract,'numeric')
     if selected_fields is not None:
         unknown=set(selected_fields)-{f.field_id for f in contract.fields}
         if unknown:raise ValueError('候选指定了不存在的字段 ID')
         allowed=[fid for fid in allowed if fid in selected_fields]
+        priority={fid:i for i,fid in enumerate(selected_fields)}
+        allowed.sort(key=lambda fid:priority[fid])
     by_id={f.field_id:f for f in contract.fields}
     numeric=[by_id[fid] for fid in allowed]
+    categorical=[by_id[fid] for fid in compatible_fields(contract,'category')]
+    category_values=category_values or {}
     events=[by_id[fid] for fid in compatible_fields(contract,'boolean')]
     time_ok=bool(contract.state=='confirmed' and contract.event_time_field_id and contract.timezone and
                 by_id[contract.event_time_field_id].confirmation=='confirmed')
+    from timepilot.feature_topology import infer_topology, needs_row_order
+    topology=topology or infer_topology(contract)
     candidates=[]; seen=set(); names={f.source_name for f in contract.fields}
 
     def add(op,inputs,params,reason):
         if op not in SUPPORTED or len(candidates)>=budget:return
+        if needs_row_order(op) and not topology['can_propose_windows']:
+            return  # independent samples never acquire import-order semantics
         if op.startswith('rolling.duration.') or op=='event.since':
             if not time_ok:return
             if op=='event.since' and not contract.entity_field_ids:return
             params={**params,'order_field_id':contract.event_time_field_id}
-        elif op!='arithmetic.binary' and time_ok:
-            # Once time is confirmed, use real event order rather than import row order.
-            params={**params,'order_field_id':contract.event_time_field_id}
+        elif needs_row_order(op):
+            # Use the *confirmed* numeric order_index or calendar timestamp.
+            params={**params,'order_field_id':topology['order_field_id'],
+                    'partition_field_ids':list(topology['partition_field_ids'])}
         key=digest([op,list(inputs),params])
         if key in seen:return
         fields=[by_id[x] for x in inputs]
@@ -124,6 +134,7 @@ def propose(contract, *, template='basic', budget=30, selected_fields=None, task
         title=OPERATORS[op].title
         if op=='arithmetic.binary':
             sign=params['operator']; title=f'{fields[0].source_name} {sign} {fields[1].source_name}'
+        elif op=='category.is_value':title=f"{fields[0].source_name} = {str(params['category_value'])[:40]}"
         else:title=f'{fields[0].source_name} · {title}'
         fid='cand_'+key[:24]
         candidates.append({'candidate_id':fid,'feature_id':'feat_'+key[:24],
@@ -133,6 +144,38 @@ def propose(contract, *, template='basic', budget=30, selected_fields=None, task
             'scope':'exploration' if task_mode=='exploration' else 'requires_pit_validation'})
         seen.add(key);names.add(name)
 
+    if template=='adaptive':
+        from timepilot.feature_strategy import plan_candidates
+        plan=strategy_plan or plan_candidates(contract,profile=profile,objective=objective,
+            budget=budget,selected_fields=selected_fields,topology=topology,
+            category_values=category_values,task_mode=task_mode)
+        for proposal in plan['proposals']:
+            before=len(candidates)
+            add(proposal['operator_id'],proposal['input_field_ids'],
+                proposal['parameters'],proposal['reason'])
+            # add() pins time/window and partition fields after planning, so
+            # the candidate fingerprint intentionally differs from plan hash.
+            if len(candidates)>before:
+                candidates[-1].update({k:proposal[k] for k in
+                    ('family','family_label','cost_tier','search_round')})
+        return candidates
+    # Row-local indicators are safe for independent rows and for ordered data.
+    # Never use labels/IDs as a categorical feature; only confirmed categories.
+    for field in categorical[:4]:
+        for value in (category_values.get(field.field_id) or [])[:2]:
+            if isinstance(value,(str,int,float,bool)) and len(str(value))<=120:
+                add('category.is_value',[field.field_id],{'category_value':value},
+                    '类别值来自全量频数画像；逐行判断，不读取未来记录或标签')
+    # Row-independent fallback is mandatory when a table has no confirmed order.
+    if not topology['can_propose_windows']:
+        for field in numeric:
+            add('transform.abs',[field.field_id],{},'逐行数值变换；未确认时间顺序，不计算滚动窗口')
+            if len(candidates)>=budget:break
+        if len(numeric)>1:
+            for a,b in zip(numeric[:5],numeric[1:6]):
+                if a.unit and b.unit and a.unit!=b.unit:continue
+                add('arithmetic.binary',[a.field_id,b.field_id],{'operator':'-'},'逐行字段差值；单位需业务确认')
+        return candidates
     # Prefer modestly sized, interpretable candidates. Never pair every column.
     if template=='basic':
         for field in numeric:
@@ -227,13 +270,16 @@ class FeatureCandidateSessions:
             or result['contract_revision']!=contract.revision or contract.state=='stale')
         return result
 
-    def create(self,pid,aid,vid, *, request_id,template='basic',budget=30,selected_fields=None,task_mode='exploration'):
+    def create(self,pid,aid,vid, *, request_id,template='basic',budget=30,selected_fields=None,task_mode='exploration',topology=None,category_values=None,profile=None,objective='explore'):
         self._write(pid)
         if not request_id or len(request_id)>120:raise ValueError('请求 ID 无效')
         source,contract=self._live(pid,aid,vid)
         request_spec=digest({'asset_id':aid,'version_id':vid,'template':template,
             'budget':budget,'selected_field_ids':sorted(set(selected_fields or [])),
-            'task_mode':task_mode})
+            'task_mode':task_mode,'topology':digest(topology) if topology else None,
+            'category_values':category_values or {},
+            'objective':objective if template=='adaptive' else None,
+            'profile_fingerprint':(profile or {}).get('query_fingerprint') if template=='adaptive' else None})
         with self.projects._db() as db:
             previous=db.execute('''SELECT * FROM feature_candidate_sessions
                  WHERE project_id=? AND owner_id=? AND request_id=?''',(pid,self._owner(),request_id)).fetchone()
@@ -244,14 +290,26 @@ class FeatureCandidateSessions:
                 raise ValueError('同一个请求 ID 已用于不同的候选生成参数')
             return self._read(pid,previous['session_id'])
         suggestions=infer_fields(contract)
+        strategy_plan=None
+        if template=='adaptive':
+            from timepilot.feature_strategy import plan_candidates
+            strategy_plan=plan_candidates(contract,profile=profile,objective=objective,budget=budget,
+                selected_fields=selected_fields,topology=topology,
+                category_values=category_values,task_mode=task_mode)
         candidates=propose(contract,template=template,budget=budget,
-                           selected_fields=selected_fields,task_mode=task_mode)
+                           selected_fields=selected_fields,task_mode=task_mode,topology=topology,
+                           category_values=category_values,profile=profile,objective=objective,
+                           strategy_plan=strategy_plan)
+        from timepilot.feature_topology import infer_topology
+        applied_topology=topology or infer_topology(contract)
         doc={'template':template,'task_mode':task_mode,'budget':budget,
-             'request_spec':request_spec,
+             'request_spec':request_spec,'topology':applied_topology,
+             'strategy_plan':strategy_plan,
              'selected_field_ids':selected_fields or [],'field_suggestions':suggestions,
              'candidates':candidates,'selected_candidate_ids':[c['candidate_id'] for c in candidates[:8]],
              'layout':{'mode':'quick','filter':'all','chart_mode':'trend'},'generator_version':SUGGESTION_VERSION,
-             'notice':'候选按记录顺序计算；实际时长窗口仅使用已确认的时间字段。'}
+             'notice':('已核实排序/分组字段，时序特征按确认键计算。' if applied_topology['can_propose_windows']
+                       else '未确认安全的时间顺序或设备分组：当前只生成与行顺序无关的数值特征。')}
         sid=str(uuid4());stamp=now()
         try:
             with self.projects._lock,self.projects._db() as db:
